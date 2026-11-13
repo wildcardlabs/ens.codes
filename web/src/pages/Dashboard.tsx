@@ -72,15 +72,6 @@ export default function Dashboard() {
   const [state, setState] = useState<'idle' | 'signing' | 'loading' | 'forbidden' | 'unavailable'>('idle')
   const [error, setError] = useState<string | null>(null)
 
-  // Keep this page out of search results.
-  useEffect(() => {
-    const meta = document.createElement('meta')
-    meta.name = 'robots'
-    meta.content = 'noindex, nofollow'
-    document.head.appendChild(meta)
-    return () => meta.remove()
-  }, [])
-
   const load = useCallback(async (s: Session, quiet = false, fresh = false) => {
     if (!quiet) setState('loading')
     try {

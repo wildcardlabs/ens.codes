@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { format, parse } from '@/lib/code'
 import { EXPLORER_URL, MAX_NAMES, publicClient, RENEWERS, USDC, VAULT } from '@/lib/config'
+import { QUESTIONS } from '@/lib/site'
 import { cleanAmount, fmtDelivered, fmtUsdc, fmtUsdcExact, parseUsdc, truncAddress, YEAR_SECONDS } from '@/lib/format'
 import { soldLengths } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
@@ -622,18 +623,11 @@ function Costs() {
 /* ------------------------------------------------------------- Questions */
 /** Only the doubts that stop someone from acting. Each answer is one or two sentences. */
 function Questions() {
-  const items: [string, string][] = [
-    ['Who can use a code?', 'Anyone who has it, once. It can only pay for ENS renewals.'],
-    ['Can I see my codes again later?', 'Yes. Log in with the wallet you paid with and they’re all in My codes.'],
-    ['Does a code expire?', 'No.'],
-    ['Can I get my money back?', 'Yes, if the code hasn’t been used. The service fee isn’t refunded.'],
-    ['Which wallets work?', 'Browser wallets such as MetaMask and Rabby, including with a Ledger or Trezor.'],
-  ]
   return (
     <section id="questions" className="grid gap-10 py-20 mid:grid-cols-2 mid:gap-16 mid:py-24">
       <SectionHead hue="pink" eyebrow="Questions" title="Before you ask." className="max-w-[360px]" />
       <div>
-        {items.map(([q, a], i) => (
+        {QUESTIONS.map(([q, a], i) => (
           <details key={q} open={i === 0} className="group border-b border-rule">
             <summary className={cn('flex cursor-pointer list-none gap-5 py-[18px] text-[19px] tracking-[-0.01em] text-foreground [&::-webkit-details-marker]:hidden', i === 0 && 'pt-1')}>
               <span className="w-3.5 flex-none text-[26px] font-light leading-[.9] text-pink group-open:hidden">+</span>
