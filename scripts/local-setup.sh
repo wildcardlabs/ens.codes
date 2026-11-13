@@ -36,6 +36,9 @@ fund() {
 # Anvil's public test keys carry EIP-7702 delegations on mainnet; clear the dev account's
 # so it behaves like a plain wallet (USDC permits fail for delegated accounts).
 cast rpc --rpc-url $RPC anvil_setCode "$DEPLOYER" 0x >/dev/null
+# The same for the dev relayer (anvil account 2), so ETH sent to it stays there.
+RELAYER=$(cast rpc --rpc-url $RPC eth_accounts | tr -d '[]"' | cut -d, -f3)
+cast rpc --rpc-url $RPC anvil_setCode "$RELAYER" 0x >/dev/null
 
 fund "$DEPLOYER"
 for a in "$@"; do fund "$a"; done

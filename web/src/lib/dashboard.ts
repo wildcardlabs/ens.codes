@@ -1,7 +1,8 @@
 import { type Address, getAddress, type Hex, type WalletClient } from 'viem'
 import { createSiweMessage, generateSiweNonce } from 'viem/siwe'
 import { type Day, MAX_SESSION, SIGN_IN_STATEMENT, type Stats } from '../../../api/_lib/statsShared'
-import { CHAIN_ID } from './config'
+import { vaultAbi } from './abi'
+import { CHAIN_ID, publicClient, VAULT } from './config'
 import { ensureChainFor } from './wallet'
 
 export type { Activity, Bucket, Buyer, Day, Stats } from '../../../api/_lib/statsShared'
@@ -67,13 +68,14 @@ export class DashboardError extends Error {
   }
 }
 
-export async function loadStats(session: Session): Promise<Stats> {
+/** `fresh`: read the chain again now, for right after one of the owner's own transactions. */
+export async function loadStats(session: Session, fresh = false): Promise<Stats> {
   let res: Response
   try {
     res = await fetch('/api/stats', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: session.message, signature: session.signature }),
+      body: JSON.stringify({ message: session.message, signature: session.signature, ...(fresh ? { fresh: true } : {}) }),
     })
   } catch {
     throw new DashboardError('unavailable')
@@ -82,6 +84,28 @@ export async function loadStats(session: Session): Promise<Stats> {
   if (res.status === 403) throw new DashboardError('forbidden')
   if (!res.ok) throw new DashboardError('unavailable')
   return (await res.json()) as Stats
+}
+
+// ------------------------------------------------------------------------------------ actions
+
+/** Wait for a transaction and fail loudly if it reverted. */
+async function landed(hash: Hex) {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash })
+  if (receipt.status !== 'success') throw new Error('The transaction failed.')
+}
+
+/** Send the fees collected so far to the vault's fee wallet. Any wallet may do this; the money can only go there. */
+export async function sweepFees(wallet: WalletClient, from: Address): Promise<void> {
+  await ensureChainFor(wallet)
+  const call = { account: from, address: VAULT, abi: vaultAbi, functionName: 'sweepFees' } as const
+  await publicClient.simulateContract(call)
+  await landed(await wallet.writeContract({ ...call, chain: wallet.chain }))
+}
+
+/** Send ETH from the connected wallet to the relayer, which spends it on network fees. */
+export async function topUpRelayer(wallet: WalletClient, from: Address, relayer: Address, wei: bigint): Promise<void> {
+  await ensureChainFor(wallet)
+  await landed(await wallet.sendTransaction({ account: from, to: relayer, value: wei, chain: wallet.chain }))
 }
 
 // ------------------------------------------------------------------------------------ periods
@@ -162,12 +186,24 @@ export function series(all: Day[], shown: Day[]): { points: Point[]; weekly: boo
 /** 0.1234 as "12%", small ones as "0.4%". */
 export const fmtPercent = (fraction: number) => `${Math.abs(fraction) < 0.1 && fraction !== 0 ? (fraction * 100).toFixed(1) : Math.round(fraction * 100)}%`
 
-/** Wei as ETH with up to four decimals: "0.1042 ETH". */
+/**
+ * Wei as ETH with up to four decimals: "0.1042 ETH". Amounts too small for that are given in gwei
+ * (a billionth of an ETH) or wei, so a real fee on a cheap network never reads as "0 ETH".
+ */
 export function fmtEth(wei: bigint): string {
+  if (wei === 0n) return '0 ETH'
+  if (wei < 1_000n) return `${wei} wei`
+  if (wei < 100_000_000_000_000n) {
+    const gwei = Number(wei) / 1e9
+    return `${gwei >= 100 ? Math.round(gwei).toLocaleString('en-US') : Number(gwei.toPrecision(3))} gwei`
+  }
   const tenThousandths = (wei + 50_000_000_000_000n) / 100_000_000_000_000n
   const frac = (tenThousandths % 10_000n).toString().padStart(4, '0').replace(/0+$/, '')
   return `${(tenThousandths / 10_000n).toLocaleString('en-US')}${frac ? `.${frac}` : ''} ETH`
 }
+
+/** A count that may be enormous: "4,210", "1.6 million", "15.9 billion". */
+export const fmtCount = (n: number) => (n < 1e6 ? n.toLocaleString('en-US') : new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'long', maximumFractionDigits: 1 }).format(n))
 
 /** Seconds as the largest unit that fits: "40 min", "5 hours", "12 days". */
 export function fmtWait(seconds: number): string {

@@ -113,6 +113,7 @@ const vaultAbi = parseAbi([
   'function paused() view returns (bool)',
   'function maxCodeAmount() view returns (uint96)',
   'function PROTOCOL_FEE() view returns (uint256)',
+  'function feeRecipient() view returns (address)',
   'function balanceOf(address) view returns (uint256)',
 ])
 const events = vaultAbi.filter((x) => x.type === 'event')
@@ -320,7 +321,7 @@ export function summarise(history: VaultEvent[], opts: { now: number; fee: numbe
         const seen = names.get(name) ?? { times: 0, seconds: 0 }
         names.set(name, { times: seen.times + 1, seconds: seen.seconds + n.seconds })
       }
-      activity.push({ kind: 'redeemed', at: e.at, tx: e.tx, who: p?.buyer ?? e.sender, names: e.names.map((n) => `${n.label}.eth`), spent: e.spent, change: e.change, relayed })
+      activity.push({ kind: 'redeemed', at: e.at, tx: e.tx, who: e.sender, buyer: p?.buyer ?? null, names: e.names.map((n) => `${n.label}.eth`), spent: e.spent, change: e.change, relayed })
     } else if (e.kind === 'cancelled') {
       const p = purchases.get(e.id)
       if (p) {
@@ -404,13 +405,14 @@ const SHARED_MS = 5_000
 
 async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
   const call = { address: cfg.vault, abi: vaultAbi } as const
-  const [{ events: all, block }, usdc, feesAccrued, paused, maxCodeAmount, fee, relayer] = await Promise.all([
+  const [{ events: all, block }, usdc, feesAccrued, paused, maxCodeAmount, fee, feeRecipient, relayer] = await Promise.all([
     history(client, cfg),
     client.readContract({ ...call, functionName: 'usdc' }),
     client.readContract({ ...call, functionName: 'feesAccrued' }),
     client.readContract({ ...call, functionName: 'paused' }),
     client.readContract({ ...call, functionName: 'maxCodeAmount' }),
     client.readContract({ ...call, functionName: 'PROTOCOL_FEE' }),
+    client.readContract({ ...call, functionName: 'feeRecipient' }),
     info(cfg),
   ])
   const relayerAddress = cfg.account?.address ?? null
@@ -426,7 +428,7 @@ async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
     block: Number(block),
     asOf: now,
     fee: Number(fee),
-    state: { usdc: Number(held), feesAccrued: Number(feesAccrued), paused, maxCodeAmount: Number(maxCodeAmount) },
+    state: { usdc: Number(held), feesAccrued: Number(feesAccrued), feeRecipient, paused, maxCodeAmount: Number(maxCodeAmount) },
     relayer: {
       address: relayerAddress,
       enabled: relayer.enabled,
@@ -442,7 +444,7 @@ async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
 const calls = new Map<string, { count: number; from: number }>()
 const CALLS_PER_MINUTE = 30
 
-/** POST a sign-in ({ message, signature }) and get the figures back. */
+/** POST a sign-in ({ message, signature }, and optionally `fresh`) and get the figures back. */
 export async function handleStats(request: Request, cfg: StatsConfig): Promise<Response> {
   try {
     if (request.method !== 'POST') return json(405, { error: 'method_not_allowed' })
@@ -475,7 +477,9 @@ export async function handleStats(request: Request, cfg: StatsConfig): Promise<R
     })
 
     const key = `${cfg.chainId}:${cfg.vault}`
-    if (!latest || latest.key !== key || now - latest.at > SHARED_MS) {
+    // `fresh` is sent right after the owner's own transaction, which a shared read might predate.
+    const fresh = (body as { fresh?: unknown }).fresh === true
+    if (fresh || !latest || latest.key !== key || now - latest.at > SHARED_MS) {
       const stats = build(client, cfg)
       latest = { key, at: now, stats }
       stats.catch(() => latest?.stats === stats && (latest = null))
