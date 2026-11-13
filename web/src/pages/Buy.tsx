@@ -344,14 +344,12 @@ function Ready({ done, onAnother, go }: { done: Done; onAnother: () => void; go:
   )
 }
 
-/** After a bulk purchase: every code, with the same exports My codes offers, and copy-all. */
+/** After a bulk purchase: every code, each with its own copy buttons, and the same exports My codes offers. */
 function BatchReady({ done, onAnother, go }: { done: Done; onAnother: () => void; go: Go }) {
   const { copied, copy } = useCopyFeedback()
   const [exporting, setExporting] = useState(false)
   useEffect(celebrate, [])
   const n = done.codes.length
-  const all = done.codes.join('\n')
-  const links = done.codes.map(redeemLink).join('\n')
   const scopes = useMemo(() => [{ key: 'all', label: 'All', items: done.codes.map((code, i) => ({ number: done.first + i, code, amount: done.amount })) }], [done])
 
   return (
@@ -364,19 +362,10 @@ function BatchReady({ done, onAnother, go }: { done: Done; onAnother: () => void
         <h1 className="t-page">Your {n} claim codes are ready.</h1>
         <p className="mt-2 text-[17px] leading-[26px] text-body">You can see these codes again in My codes.</p>
 
-        <div className="no-print mt-5 grid gap-2 sm:grid-cols-3">
-          <Button size="md" className="px-0" onClick={() => setExporting(true)}>
-            <Download aria-hidden="true" /> Export
-          </Button>
-          <Button variant="soft" size="md" className="px-0" onClick={() => void copy(all)}>
-            <CopyIcon done={copied === all} />
-            {copied === all ? 'Copied' : 'Copy all'}
-          </Button>
-          <Button variant="soft" size="md" className="px-0" onClick={() => void copy(links)}>
-            {copied === links ? <Check aria-hidden="true" /> : <Link2 aria-hidden="true" />}
-            {copied === links ? 'Copied' : 'Copy links'}
-          </Button>
-        </div>
+        {/* One action for the whole purchase. Copying is for one code at a time, on its row. */}
+        <Button size="md" className="no-print mt-5 w-full" onClick={() => setExporting(true)}>
+          <Download aria-hidden="true" /> Export
+        </Button>
         <ExportDialog open={exporting} onOpenChange={setExporting} scopes={scopes} />
 
         {/* Wide screens: the list fills the height the ticket side sets, and scrolls inside it. */}

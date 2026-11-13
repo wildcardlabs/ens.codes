@@ -255,20 +255,6 @@ export default function MyCodes({ go }: { go: Go }) {
     if (code) await copyAndSay(what === 'copy' ? code : redeemLink(code), what === 'copy' ? 'Code copied' : 'Link copied', hidden, what === 'copy' ? 'Copy code' : 'Copy link')
   }
 
-  async function copySelected(list: Row[]) {
-    const hidden = !codes
-    const map = codes ?? (await showCodes('codes'))
-    const found = map ? list.flatMap((r) => map.get(r.id) ?? []) : []
-    if (found.length) await copyAndSay(found.join('\n'), found.length === 1 ? 'Code copied' : `${found.length} codes copied`, hidden, found.length === 1 ? 'Copy code' : 'Copy codes')
-  }
-
-  async function copyLinks(list: Row[]) {
-    const hidden = !codes
-    const map = codes ?? (await showCodes('links'))
-    const found = map ? list.flatMap((r) => map.get(r.id) ?? []) : []
-    if (found.length) await copyAndSay(found.map(redeemLink).join('\n'), found.length === 1 ? 'Link copied' : `${found.length} links copied`, hidden, found.length === 1 ? 'Copy link' : 'Copy links')
-  }
-
   /** Exports need the codes themselves, so this shows them first (one signature) if they aren't yet. */
   async function openExport() {
     if (codes ?? (await showCodes('export'))) setExporting(true)
@@ -490,12 +476,6 @@ export default function MyCodes({ go }: { go: Go }) {
                 <>
                   <Button variant="ghost" onClick={() => setSelected(new Set())}>
                     Clear
-                  </Button>
-                  <Button variant="soft" disabled={unlocking} onClick={() => void copySelected(chosen)}>
-                    <Copy aria-hidden="true" /> Copy codes
-                  </Button>
-                  <Button variant="soft" disabled={unlocking} onClick={() => void copyLinks(chosen)}>
-                    <Link2 aria-hidden="true" /> Copy links
                   </Button>
                   <Button variant="soft" disabled={unlocking} onClick={() => void openExport()}>
                     <Download aria-hidden="true" /> Export
