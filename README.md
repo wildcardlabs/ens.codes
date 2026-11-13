@@ -14,7 +14,7 @@ audited: don't use it with real funds.
 - **Buy.** One code, or up to 200 of the same value in one transaction. The buyer pays each code's
   value plus a flat 0.05 USDC fee. A whole purchase is stored as one record, with the codes
   committed as a Merkle root.
-- **Redeem.** A code is spent once, on up to 10 names. Either every name renews or the code stays
+- **Redeem.** A code is spent once, on up to 5 names. Either every name renews or the code stays
   unused. Whatever a renewal doesn't spend goes back to the buyer in the same transaction, and
   nothing can be paid to whoever submits it.
 - **No wallet needed to redeem.** The code signs the redemption in the browser and a relayer
