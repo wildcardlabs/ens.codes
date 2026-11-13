@@ -21,6 +21,7 @@ const root = document.getElementById('root')!
 if (framed()) {
   root.textContent = 'ens.codes does not run inside another page. Open it directly.'
 } else {
+  // On the landing page the root already holds the page as built HTML; the app draws over it.
   createRoot(root).render(
     <StrictMode>
       <MotionConfig reducedMotion="user">

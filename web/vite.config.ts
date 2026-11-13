@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite'
+import { createServer, defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite'
 import { configFromEnv, handle } from '../api/_lib/relay.js'
 import { handleStats, statsConfigFromEnv } from '../api/_lib/stats.js'
 import { headTags, type PageKey } from './src/lib/site'
@@ -46,26 +46,58 @@ function devApi(env: Record<string, string>): Plugin {
  * previews read them without running the app. The landing page's go into index.html; a build also
  * writes buy.html, redeem.html, codes.html and dashboard.html, the same app with that page's tags,
  * which the host serves at /buy, /redeem, /codes and /dashboard.
+ *
+ * A build also draws the landing page once and puts the result into index.html, so its words are in
+ * the file for anything that doesn't run the app. The other pages start empty, as before.
  */
 function pageHeads(): Plugin {
   const MARK = '<!--page-->'
+  const ROOT = '<div id="root"></div>'
   let out = ''
+  let root = ''
+  let mode = ''
   return {
     name: 'ens-codes-page-heads',
     configResolved(config) {
       out = config.command === 'build' ? path.resolve(config.root, config.build.outDir) : ''
+      root = config.root
+      mode = config.mode
     },
     transformIndexHtml: (html) => html.replace(MARK, `${MARK}\n    ${headTags('home')}\n    <!--/page-->`),
-    closeBundle() {
+    async closeBundle() {
       const index = out && path.join(out, 'index.html')
       if (!index || !fs.existsSync(index)) return
-      const home = fs.readFileSync(index, 'utf8')
+      const shell = fs.readFileSync(index, 'utf8')
       const block = /<!--page-->[\s\S]*?<!--\/page-->/
-      if (!block.test(home)) throw new Error('index.html has lost its <!--page--> marker.')
+      if (!block.test(shell) || !shell.includes(ROOT)) throw new Error('index.html has lost its <!--page--> marker or its empty #root.')
       for (const key of ['buy', 'redeem', 'codes', 'dashboard'] satisfies PageKey[])
-        fs.writeFileSync(path.join(out, `${key}.html`), home.replace(block, () => headTags(key)))
-      fs.writeFileSync(index, home.replace(block, () => headTags('home')))
+        fs.writeFileSync(path.join(out, `${key}.html`), shell.replace(block, () => headTags(key)))
+      const page = await landingPage(root, mode)
+      fs.writeFileSync(index, shell.replace(block, () => headTags('home')).replace(ROOT, () => `<div id="root">${page}</div>`))
     },
+  }
+}
+
+/** Draw the landing page to HTML, by loading the app's own code the way the dev server would. */
+async function landingPage(root: string, mode: string): Promise<string> {
+  const server = await createServer({
+    configFile: false,
+    root,
+    mode,
+    resolve: { alias: { '@': path.resolve(root, './src') } },
+    server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    appType: 'custom',
+    logLevel: 'error',
+  })
+  try {
+    const { render } = (await server.ssrLoadModule('/src/prerender.tsx')) as { render: () => string }
+    const html = render()
+    // A build that would ship the page without its words should stop here, not deploy.
+    if (!html.includes('Renewals you can hand over.')) throw new Error('The landing page rendered without its headline.')
+    return html
+  } finally {
+    await server.close()
   }
 }
 
