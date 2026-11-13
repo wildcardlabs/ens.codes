@@ -7,6 +7,9 @@
   "functions": {
     "api/redeem.ts": {
       "maxDuration": 30
+    },
+    "api/stats.ts": {
+      "maxDuration": 60
     }
   },
   "rewrites": [

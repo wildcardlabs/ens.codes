@@ -235,7 +235,7 @@ const SIGNER_OK = Promise.resolve(true)
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
 
-const clientFor = (cfg: RelayConfig) =>
+export const clientFor = (cfg: RelayConfig) =>
   createPublicClient({ transport: fallback(cfg.rpcUrls.map((url) => http(url, { timeout: 8_000, retryCount: 0 })), { rank: false, retryCount: 1 }) })
 
 /** GET: is relaying on, and which address must a confirmation name? POST: relay one redemption. */
@@ -255,7 +255,7 @@ export async function handle(request: Request, cfg: RelayConfig): Promise<Respon
  * `enabled` is all the site needs: the relayer can sign, has gas, and the fee is under its ceiling.
  * The other fields say which of those is missing, for whoever operates it.
  */
-async function info(cfg: RelayConfig) {
+export async function info(cfg: RelayConfig) {
   if (!cfg.account) return { enabled: false as const, chainId: cfg.chainId }
   const now = Date.now()
   if (!availability || now - availability.at > 30_000) {
