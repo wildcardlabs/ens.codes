@@ -3,6 +3,7 @@ import { AppShell } from '@/components/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { codeFromHash } from '@/lib/code'
 import { VAULT } from '@/lib/config'
+import { PAGES, urlOf } from '@/lib/site'
 import Buy from '@/pages/Buy'
 import Home from '@/pages/Home'
 import MyCodes from '@/pages/MyCodes'
@@ -19,12 +20,17 @@ const pathToPage = (path: string): Page =>
   path.startsWith('/redeem') ? 'redeem' : path.startsWith('/codes') ? 'codes' : path.startsWith('/buy') ? 'buy' : path === '/dashboard' ? 'dashboard' : 'home'
 const pageToPath = (p: Page) => (p === 'home' ? '/' : `/${p}`)
 
-const TITLES: Record<Page, string> = {
-  home: 'ens.codes — Renewals you can hand over',
-  buy: 'Buy a claim code · ens.codes',
-  redeem: 'Redeem a claim code · ens.codes',
-  codes: 'My codes · ens.codes',
-  dashboard: 'Dashboard · ens.codes',
+/** Keep the document's title, description and search tags in step with the page being shown. */
+function describe(page: Page) {
+  const meta = PAGES[page]
+  document.title = meta.title
+  document.querySelector('meta[name="description"]')?.setAttribute('content', meta.description)
+  document.querySelector('link[rel="canonical"]')?.remove()
+  document.querySelector('meta[name="robots"]')?.remove()
+  const tag = meta.index
+    ? Object.assign(document.createElement('link'), { rel: 'canonical', href: urlOf(meta) })
+    : Object.assign(document.createElement('meta'), { name: 'robots', content: 'noindex, nofollow' })
+  document.head.appendChild(tag)
 }
 
 export default function App() {
@@ -70,7 +76,7 @@ export default function App() {
   )
 
   useEffect(() => {
-    document.title = TITLES[page]
+    describe(page)
   }, [page])
 
   return (

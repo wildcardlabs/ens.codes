@@ -1,9 +1,11 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite'
 import { configFromEnv, handle } from '../api/_lib/relay.js'
 import { handleStats, statsConfigFromEnv } from '../api/_lib/stats.js'
+import { headTags, type PageKey } from './src/lib/site'
 
 /**
  * The server functions on the dev server. In production `/api/redeem` and `/api/stats` are Vercel
@@ -39,6 +41,34 @@ function devApi(env: Record<string, string>): Plugin {
   }
 }
 
+/**
+ * Each page's own title, description and share tags, in the HTML itself: search engines and link
+ * previews read them without running the app. The landing page's go into index.html; a build also
+ * writes buy.html, redeem.html, codes.html and dashboard.html, the same app with that page's tags,
+ * which the host serves at /buy, /redeem, /codes and /dashboard.
+ */
+function pageHeads(): Plugin {
+  const MARK = '<!--page-->'
+  let out = ''
+  return {
+    name: 'ens-codes-page-heads',
+    configResolved(config) {
+      out = config.command === 'build' ? path.resolve(config.root, config.build.outDir) : ''
+    },
+    transformIndexHtml: (html) => html.replace(MARK, `${MARK}\n    ${headTags('home')}\n    <!--/page-->`),
+    closeBundle() {
+      const index = out && path.join(out, 'index.html')
+      if (!index || !fs.existsSync(index)) return
+      const home = fs.readFileSync(index, 'utf8')
+      const block = /<!--page-->[\s\S]*?<!--\/page-->/
+      if (!block.test(home)) throw new Error('index.html has lost its <!--page--> marker.')
+      for (const key of ['buy', 'redeem', 'codes', 'dashboard'] satisfies PageKey[])
+        fs.writeFileSync(path.join(out, `${key}.html`), home.replace(block, () => headTags(key)))
+      fs.writeFileSync(index, home.replace(block, () => headTags('home')))
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   // A hosted build must name its network and a public RPC.
   if (process.env.VERCEL) {
@@ -48,7 +78,7 @@ export default defineConfig(({ mode }) => {
     if (!env.VITE_RPC_URL || /127\.0\.0\.1|localhost/.test(env.VITE_RPC_URL)) throw new Error('Set VITE_RPC_URL to a public RPC in Vercel before deploying.')
   }
   return {
-    plugins: [react(), tailwindcss(), devApi(loadEnv(mode, __dirname, 'VITE_'))],
+    plugins: [react(), tailwindcss(), pageHeads(), devApi(loadEnv(mode, __dirname, 'VITE_'))],
     resolve: { alias: { '@': path.resolve(__dirname, './src') } },
     // The dashboard shares its types and sign-in wording with the server function.
     server: { fs: { allow: [searchForWorkspaceRoot(__dirname), path.resolve(__dirname, '../api/_lib')] } },
