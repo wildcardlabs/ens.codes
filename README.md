@@ -30,7 +30,7 @@ audited: don't use it with real funds.
 | --- | --- |
 | `contracts/` | The vault (`src/ClaimCodeVault.sol`), its tests and deploy script. Foundry |
 | `web/` | The site: landing page, buy, redeem and "My codes". React, Vite, viem |
-| `api/` | The relayer: a serverless function that submits redemptions |
+| `api/` | Serverless functions: the relayer, which submits redemptions, and the owner's dashboard figures |
 | `infra/` | CloudFormation for the relayer's signing key (AWS KMS) |
 | `scripts/` | Local fork and deploy helpers |
 | `brand/` | Logo files |

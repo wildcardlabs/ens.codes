@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { AppShell } from '@/components/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { codeFromHash } from '@/lib/code'
@@ -8,12 +8,15 @@ import Home from '@/pages/Home'
 import MyCodes from '@/pages/MyCodes'
 import Redeem from '@/pages/Redeem'
 
-/** `home` is the public landing page; the other three are the app. */
-export type Page = 'home' | 'buy' | 'redeem' | 'codes'
+/** The owner's dashboard is its own bundle: visitors never download it, and nothing links to it. */
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
+
+/** `home` is the public landing page; buy, redeem and codes are the app; `dashboard` is the owner's. */
+export type Page = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard'
 export type Go = (p: Page, search?: string) => void
 
 const pathToPage = (path: string): Page =>
-  path.startsWith('/redeem') ? 'redeem' : path.startsWith('/codes') ? 'codes' : path.startsWith('/buy') ? 'buy' : 'home'
+  path.startsWith('/redeem') ? 'redeem' : path.startsWith('/codes') ? 'codes' : path.startsWith('/buy') ? 'buy' : path === '/dashboard' ? 'dashboard' : 'home'
 const pageToPath = (p: Page) => (p === 'home' ? '/' : `/${p}`)
 
 const TITLES: Record<Page, string> = {
@@ -21,6 +24,7 @@ const TITLES: Record<Page, string> = {
   buy: 'Buy a claim code · ens.codes',
   redeem: 'Redeem a claim code · ens.codes',
   codes: 'My codes · ens.codes',
+  dashboard: 'Dashboard · ens.codes',
 }
 
 export default function App() {
@@ -73,6 +77,10 @@ export default function App() {
     <>
       {page === 'home' ? (
         <Home go={go} onCode={redeemCode} />
+      ) : page === 'dashboard' ? (
+        <Suspense fallback={null}>
+          <Dashboard />
+        </Suspense>
       ) : (
         <AppShell page={page} go={go}>
           {!VAULT ? (
