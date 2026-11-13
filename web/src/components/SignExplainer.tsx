@@ -8,7 +8,7 @@ import { Key } from './ds/stickers'
  * What the person was doing when the signature came up. Someone who pressed Export or Copy link
  * didn't ask to "show codes", so the dialog names their action and says what happens after signing.
  */
-export type SignReason = 'buy' | 'view' | 'export' | 'copy' | 'link' | 'codes' | 'links' | 'image' | 'share'
+export type SignReason = 'buy' | 'view' | 'export' | 'copy' | 'link' | 'image' | 'share'
 
 /**
  * The signature is for one thing only, revealing the codes. Copying or exporting needs no signature
@@ -27,8 +27,6 @@ const COPY: Record<SignReason, { title: string; lead: string; action: string }> 
   export: { title: 'Sign to reveal and export.', lead: then('the export opens'), action: 'Reveal and export' },
   copy: { title: 'Sign to reveal and copy.', lead: then('this code is copied'), action: 'Reveal and copy' },
   link: { title: 'Sign to reveal and copy.', lead: then('this code’s link is copied'), action: 'Reveal and copy' },
-  codes: { title: 'Sign to reveal and copy.', lead: then('the codes you selected are copied'), action: 'Reveal and copy' },
-  links: { title: 'Sign to reveal and copy.', lead: then('the links for the codes you selected are copied'), action: 'Reveal and copy' },
   image: { title: 'Sign to reveal and download.', lead: then('this code’s image downloads'), action: 'Reveal and download' },
   share: { title: 'Sign to reveal and share.', lead: then('you can share this code'), action: 'Reveal and share' },
 }
