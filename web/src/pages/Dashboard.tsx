@@ -1,25 +1,29 @@
-import { ArrowUpRight, Loader2, LogOut, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { ArrowUpRight, Fuel, Loader2, LogOut, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
-import type { Address } from 'viem'
+import { toast } from 'sonner'
+import { type Address, parseEther } from 'viem'
 import { Rows, SplitBar, StatusPill, Wrap } from '@/components/ds/primitives'
-import { Wordmark } from '@/components/ds/Wordmark'
+import { Mark, Wordmark } from '@/components/ds/Wordmark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { WalletChoices } from '@/components/wallet'
-import { chain, EXPLORER_URL } from '@/lib/config'
+import { chain, EXPLORER_URL, publicClient } from '@/lib/config'
 import {
   type Activity,
   type Bucket,
   change,
   DashboardError,
   fmtAgo,
+  fmtCount,
   fmtEth,
   fmtPercent,
   fmtWait,
@@ -33,12 +37,15 @@ import {
   signIn,
   signOut,
   type Stats,
+  sweepFees,
+  topUpRelayer,
   totals,
 } from '@/lib/dashboard'
 import { useEnsProfile } from '@/lib/ensProfile'
 import { fmtDateSecs, fmtDelivered, fmtUsdc, truncAddress } from '@/lib/format'
+import { errorMessage } from '@/lib/util'
 import { cn } from '@/lib/utils'
-import { disconnect, useWallet } from '@/lib/wallet'
+import { type Connected, disconnect, useWallet } from '@/lib/wallet'
 
 /**
  * The owner's dashboard: how the vault is doing, from its own events. It lives at /dashboard and
@@ -74,10 +81,10 @@ export default function Dashboard() {
     return () => meta.remove()
   }, [])
 
-  const load = useCallback(async (s: Session, quiet = false) => {
+  const load = useCallback(async (s: Session, quiet = false, fresh = false) => {
     if (!quiet) setState('loading')
     try {
-      setStats(await loadStats(s))
+      setStats(await loadStats(s, fresh))
       setState('idle')
     } catch (err) {
       const kind = err instanceof DashboardError ? err.kind : 'unavailable'
@@ -118,7 +125,7 @@ export default function Dashboard() {
     setState('idle')
   }
 
-  if (session && stats) return <Board stats={stats} session={session} refresh={() => load(session, true)} leave={leave} />
+  if (session && stats) return <Board stats={stats} session={session} refresh={(fresh) => load(session, true, fresh)} leave={leave} />
 
   return (
     <div className="grid min-h-dvh place-items-center px-5 py-16">
@@ -176,7 +183,7 @@ export default function Dashboard() {
 
 // -------------------------------------------------------------------------------------- board
 
-function Board({ stats, session, refresh, leave }: { stats: Stats; session: Session; refresh: () => Promise<void>; leave: () => void }) {
+function Board({ stats, session, refresh, leave }: { stats: Stats; session: Session; refresh: (fresh?: boolean) => Promise<void>; leave: () => void }) {
   const [range, setRange] = useState<Range>('30d')
   const [busy, setBusy] = useState(false)
   const again = () => {
@@ -189,11 +196,15 @@ function Board({ stats, session, refresh, leave }: { stats: Stats; session: Sess
       <header className="sticky top-0 z-20 bg-background">
         <Wrap className="max-w-[1240px]">
           <div className="flex h-[64px] items-center gap-3">
-            <Wordmark />
-            <span className="text-[15px] font-medium text-caption">Dashboard</span>
-            <Badge variant="outline" className="hidden sm:inline-flex">
-              {chain.name}
-            </Badge>
+            {/* The wordmark, taken apart: its name, "Dashboard" and the network sit on one baseline. */}
+            <div className="flex items-center gap-[0.36em] text-[18px] text-heading">
+              <Mark className="h-[1.3em] translate-y-[0.125em]" />
+              <div className="flex translate-y-px items-baseline gap-2.5">
+                <span className="font-display leading-none font-semibold tracking-[-0.02em]">ens.codes</span>
+                <span className="text-[15px] leading-none font-medium text-caption">Dashboard</span>
+                <span className="hidden text-[13px] leading-none text-caption sm:inline">· {chain.name}</span>
+              </div>
+            </div>
             <div className="ml-auto flex items-center gap-2">
               <span className="hidden text-[13px] text-caption md:inline" title={`Block ${stats.block}`}>
                 Updated {new Date(stats.asOf * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -242,7 +253,7 @@ function Board({ stats, session, refresh, leave }: { stats: Stats; session: Sess
               <ActivityLog stats={stats} />
             </TabsContent>
             <TabsContent value="operations">
-              <Operations stats={stats} />
+              <Operations stats={stats} refresh={() => refresh(true)} />
             </TabsContent>
           </Tabs>
         )}
@@ -354,7 +365,7 @@ function Overview({ stats, range, setRange }: { stats: Stats; range: Range; setR
         <Stat label="Names renewed" value={count(t.names)} delta={change(t.names, b?.names)} note={t.seconds ? `${fmtDelivered(BigInt(t.seconds))} added` : 'No time added yet'} />
         <Stat label="Fees earned" value={usd(t.fees)} delta={change(t.fees, b?.fees)} note={`${usd(stats.fee)} a code`} />
         <Stat label="Codes cancelled" value={count(t.cancelled)} delta={change(t.cancelled, b?.cancelled)} note={`${usd(t.cancelledValue)} returned`} />
-        <Stat label="Redeemed without a wallet" value={t.redeemed ? fmtPercent(t.relayed / t.redeemed) : '–'} note={`${count(t.relayed)} of ${count(t.redeemed)} through the relayer`} />
+        <Stat label="Sponsored redemptions" value={t.redeemed ? fmtPercent(t.relayed / t.redeemed) : '–'} note={`${count(t.relayed)} of ${count(t.redeemed)}, fee paid by the relayer`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -518,11 +529,11 @@ function BarList({ title, note, rows, unit, color }: { title: string; note: stri
 
 // ------------------------------------------------------------------------------------- buyers
 
-/** A wallet: its ENS name if it has one, linked to the explorer. */
-function Who({ address }: { address: string }) {
-  const profile = useEnsProfile(address as Address)
-  const text = profile?.name ?? truncAddress(address)
-  const cls = cn('whitespace-nowrap', !profile && 't-code text-[13px]')
+/** A wallet: a given name, or its ENS name if it has one, linked to the explorer. */
+function Who({ address, name }: { address: string; name?: string }) {
+  const profile = useEnsProfile(name ? undefined : (address as Address))
+  const text = name ?? profile?.name ?? truncAddress(address)
+  const cls = cn('whitespace-nowrap', !name && !profile && 't-code text-[13px]')
   return EXPLORER_URL ? (
     <a href={`${EXPLORER_URL}/address/${address}`} target="_blank" rel="noreferrer" title={address} className={cn(cls, 'text-foreground hover:text-app-blue')}>
       {text}
@@ -628,7 +639,6 @@ function detail(a: Activity): ReactNode {
     <>
       {a.names.slice(0, 2).join(', ')}
       {a.names.length > 2 && ` and ${a.names.length - 2} more`}
-      <span className="text-caption">{a.relayed ? ' · no wallet' : ' · from a wallet'}</span>
     </>
   )
 }
@@ -691,10 +701,10 @@ function ActivityLog({ stats }: { stats: Stats }) {
                     <TableCell>
                       <StatusPill color={KINDS[a.kind].color}>{KINDS[a.kind].text}</StatusPill>
                     </TableCell>
-                    <TableCell>
-                      <Who address={a.who} />
+                    <TableCell>{a.kind === 'redeemed' && a.relayed ? <Who address={a.who} name="Relayer" /> : <Who address={a.who} />}</TableCell>
+                    <TableCell className="max-w-[320px] truncate" title={a.kind === 'redeemed' && a.buyer ? `Code bought by ${a.buyer}` : undefined}>
+                      {detail(a)}
                     </TableCell>
-                    <TableCell className="max-w-[320px] truncate">{detail(a)}</TableCell>
                     <TableCell className="text-right font-medium text-foreground tabular-nums">{usd(amountOf(a))}</TableCell>
                     <TableCell className="text-right">
                       <TxLink tx={a.tx} />
@@ -717,9 +727,13 @@ function ActivityLog({ stats }: { stats: Stats }) {
 
 // --------------------------------------------------------------------------------- operations
 
-function Operations({ stats }: { stats: Stats }) {
+function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<void> }) {
+  const { connected } = useWallet()
   const { relayer, relayed, byWallet, state } = stats
   const life = useMemo(() => totals(stats.days), [stats.days])
+  const [login, setLogin] = useState(false)
+  const [topUp, setTopUp] = useState(false)
+  const [sweeping, setSweeping] = useState(false)
   const balance = BigInt(relayer.balance)
   const gas = BigInt(relayed.gas)
   const each = relayed.count ? gas / BigInt(relayed.count) : 0n
@@ -735,12 +749,30 @@ function Operations({ stats }: { stats: Stats }) {
       </span>
     )
 
+  useEffect(() => {
+    if (connected) setLogin(false)
+  }, [connected])
+
+  const sweep = async () => {
+    if (!connected) return setLogin(true)
+    setSweeping(true)
+    try {
+      await sweepFees(connected.client, connected.address)
+      toast.success(`${usd(state.feesAccrued)} sent to the fee wallet.`)
+      await refresh()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setSweeping(false)
+    }
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <Tile>
         <CardHeader>
           <CardTitle>Relayer</CardTitle>
-          <CardDescription>Pays the network fee when a code is redeemed without a wallet.</CardDescription>
+          <CardDescription>Pays the network fee for sponsored redemptions.</CardDescription>
           <CardAction>
             <StatusPill color={relayer.enabled ? 'var(--green)' : 'var(--red)'}>{relayer.enabled ? 'Working' : why}</StatusPill>
           </CardAction>
@@ -752,15 +784,21 @@ function Operations({ stats }: { stats: Stats }) {
               ['Balance', fmtEth(balance)],
               ['Spent on fees so far', fmtEth(gas)],
               ['Fee per redemption', relayed.count ? fmtEth(each) : '–'],
-              ['Redemptions left', each > 0n ? `About ${count(Number(balance / each))}` : '–'],
+              ['Redemptions left', each > 0n ? `About ${fmtCount(Number(balance / each))}` : '–'],
             ]}
           />
           <SplitBar
             segments={[
-              { key: 'relayed', label: 'Without a wallet', detail: count(relayed.count), value: relayed.count, color: RELAYED },
+              { key: 'relayed', label: 'Sponsored', detail: count(relayed.count), value: relayed.count, color: RELAYED },
               { key: 'wallet', label: 'From a wallet', detail: count(byWallet.count), value: byWallet.count, color: CANCELLED },
             ]}
           />
+          {relayer.address && (
+            <Button variant="soft" className="justify-self-start" onClick={() => (connected ? setTopUp(true) : setLogin(true))}>
+              <Fuel aria-hidden="true" />
+              Top up ETH
+            </Button>
+          )}
         </CardContent>
       </Tile>
 
@@ -791,16 +829,118 @@ function Operations({ stats }: { stats: Stats }) {
           <CardTitle>Fees</CardTitle>
           <CardDescription>{usd(stats.fee)} on every code sold.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-5">
           <Rows
             rows={[
               ['Earned so far', usd(life.fees)],
               ['Waiting in the vault', usd(state.feesAccrued)],
               ['Already swept', usd(stats.feesSwept)],
+              ['Fee wallet', address(state.feeRecipient)],
             ]}
           />
+          <Button variant="soft" className="justify-self-start" disabled={sweeping || state.feesAccrued === 0} onClick={() => void sweep()}>
+            {sweeping && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {state.feesAccrued === 0 ? 'Nothing to sweep' : `Sweep ${usd(state.feesAccrued)}`}
+          </Button>
         </CardContent>
       </Tile>
+
+      <Dialog open={login} onOpenChange={setLogin}>
+        <DialogContent className="gap-0 p-7">
+          <DialogTitle className="t-display text-[24px] leading-[28px]">Log in.</DialogTitle>
+          <DialogDescription className="mt-2 text-[15px] leading-[22px] text-body">Pick the wallet that will send the transaction.</DialogDescription>
+          <WalletChoices className="mt-5" onError={(m) => toast.error(m)} />
+        </DialogContent>
+      </Dialog>
+      {relayer.address && connected && (
+        <TopUp open={topUp} close={() => setTopUp(false)} relayer={relayer.address as Address} balance={balance} from={connected} done={refresh} />
+      )}
     </div>
+  )
+}
+
+const TOP_UPS = ['0.02', '0.05', '0.1']
+
+/** Send ETH from the connected wallet to the relayer. */
+function TopUp({ open, close, relayer, balance, from, done }: { open: boolean; close: () => void; relayer: Address; balance: bigint; from: Connected; done: () => Promise<void> }) {
+  const [amount, setAmount] = useState('0.05')
+  const [mine, setMine] = useState<bigint | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setError(null)
+    let live = true
+    void publicClient.getBalance({ address: from.address }).then((b) => live && setMine(b), () => {})
+    return () => {
+      live = false
+    }
+  }, [open, from.address])
+
+  let wei = 0n
+  try {
+    wei = /^\d*\.?\d*$/.test(amount) && amount !== '' && amount !== '.' ? parseEther(amount) : 0n
+  } catch {
+    // Not a number yet.
+  }
+  const short = mine !== null && wei > mine
+
+  const send = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      await topUpRelayer(from.client, from.address, relayer, wei)
+      toast.success(`${fmtEth(wei)} sent to the relayer.`)
+      close()
+      await done()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && !busy && close()}>
+      <DialogContent className="gap-0 p-7">
+        <DialogTitle className="t-display text-[24px] leading-[28px]">Top up the relayer.</DialogTitle>
+        <DialogDescription className="mt-2 text-[15px] leading-[22px] text-body">Send ETH from your wallet. The relayer spends it on network fees.</DialogDescription>
+        <div className="panel mt-5 p-4">
+          <Rows
+            rows={[
+              ['To', <span className="t-code text-[13px]" title={relayer}>{truncAddress(relayer)}</span>],
+              ['It has', fmtEth(balance)],
+              ['From', <span className="t-code text-[13px]" title={from.address}>{truncAddress(from.address)}</span>],
+              ['Your wallet has', mine === null ? '…' : fmtEth(mine)],
+            ]}
+          />
+        </div>
+        <label htmlFor="top-up-amount" className="mt-5 text-[14px] font-medium text-heading">
+          Amount
+        </label>
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="relative flex-1">
+            <Input id="top-up-amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value.replace(',', '.').trim())} aria-invalid={short} className="h-10 bg-background pr-12 text-[15px] md:text-[15px]" />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[13px] text-caption">ETH</span>
+          </div>
+          {TOP_UPS.map((v) => (
+            <Button key={v} variant="soft" size="md" className="px-3" onClick={() => setAmount(v)}>
+              {v}
+            </Button>
+          ))}
+        </div>
+        {(short || error) && <p className="mt-2 text-[13px] text-red">{short ? 'Your wallet doesn’t have that much.' : error}</p>}
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <Button variant="soft" size="md" disabled={busy} onClick={close}>
+            Not now
+          </Button>
+          <Button size="md" disabled={busy || wei === 0n || short} onClick={() => void send()}>
+            {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {wei > 0n ? `Send ${amount} ETH` : 'Send'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

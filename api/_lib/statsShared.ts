@@ -53,7 +53,8 @@ export type Buyer = {
 
 export type Activity =
   | { kind: 'bought'; at: number; tx: string; who: string; codes: number; amount: number }
-  | { kind: 'redeemed'; at: number; tx: string; who: string; names: string[]; spent: number; change: number; relayed: boolean }
+  /** `who` sent the redemption (the relayer when `relayed`); `buyer` is whose code it was. */
+  | { kind: 'redeemed'; at: number; tx: string; who: string; buyer: string | null; names: string[]; spent: number; change: number; relayed: boolean }
   | { kind: 'cancelled'; at: number; tx: string; who: string; codes: number; amount: number }
   | { kind: 'swept'; at: number; tx: string; who: string; amount: number }
 
@@ -87,6 +88,6 @@ export type Stats = Summary & {
   asOf: number
   /** The fee charged per code. */
   fee: number
-  state: { usdc: number; feesAccrued: number; paused: boolean; maxCodeAmount: number }
+  state: { usdc: number; feesAccrued: number; feeRecipient: string; paused: boolean; maxCodeAmount: number }
   relayer: { address: string | null; enabled: boolean; signer: boolean; funded: boolean; affordable: boolean; balance: string }
 }

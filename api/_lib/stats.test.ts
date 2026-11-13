@@ -145,6 +145,9 @@ test('figures add up', () => {
   assert.deepEqual(s.activity.map((a) => a.kind), ['swept', 'cancelled', 'redeemed', 'bought', 'redeemed', 'bought', 'bought'])
   const last = s.activity[2]
   assert.ok(last.kind === 'redeemed' && last.who === bob && !last.relayed && last.names[0] === 'alpha.eth')
+  // A sponsored redemption names the relayer as its sender, and the code's buyer separately.
+  const sponsored = s.activity[4]
+  assert.ok(sponsored.kind === 'redeemed' && sponsored.who === relayer && sponsored.buyer === alice && sponsored.relayed)
 })
 
 test('no events, no figures', () => {
