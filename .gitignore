@@ -1,0 +1,19 @@
+# Dependencies and build output
+node_modules/
+dist/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# Local settings: never commit these (.env.example is the template)
+.env
+.env.*
+!.env.example
+.vercel/
+
+# Machine-specific
+.DS_Store
+.claude/
+
+# Build caches
+*.tsbuildinfo

@@ -1,0 +1,606 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./shadcn.css";
+/* Fonts are self-hosted (no third-party stylesheet): a display face, a body face, and a mono for claim codes. */
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ens.codes design system.
+ * shadcn variables come first; the site's own tokens (hues, pills, rules) follow.
+ */
+:root {
+  --background: #ffffff;
+  --foreground: #121212;
+  --card: #fbfaf9;
+  --card-foreground: #121212;
+  --popover: #ffffff;
+  --popover-foreground: #121212;
+  --primary: #171717;
+  --primary-foreground: #ffffff;
+  --secondary: #f6f4ef;
+  --secondary-foreground: #121212;
+  --muted: #f6f4ef;
+  --muted-foreground: #686868;
+  --accent: #f6f4ef;
+  --accent-foreground: #121212;
+  --destructive: #ff3d17;
+  --destructive-foreground: #121212;
+  --border: #e3e3e3;
+  --input: #e3e3e3;
+  --ring: #171717;
+  --radius: 12px;
+  --chart-1: #171717;
+  --chart-2: #848281;
+  --chart-3: #62bfff;
+  --chart-4: #3784f4;
+  --chart-5: #474645;
+  --sidebar: #fbfaf9;
+  --sidebar-foreground: #121212;
+  --sidebar-primary: #171717;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eaeaea;
+  --sidebar-accent-foreground: #121212;
+  --sidebar-border: #e3e3e3;
+  --sidebar-ring: #171717;
+
+  /* The site's own tokens */
+  --heading: #343433;
+  --body: #474645;
+  --caption: #848281;
+  --rule: #efedea;
+  --pill: #f6f4ef;
+  --pill-hover: #eae6dd;
+  --stone: #f2ebe0;
+  --blue: #3784f4;
+  --app-blue: #018dff;
+  --sky: #62bfff;
+  --green: #34c759;
+  --orange: #ff5310;
+  --gold: #ca9230;
+  --yellow: #ffbe4c;
+  --pink: #f966ac;
+  --purple: #9553f9;
+  --red: #ff3d17;
+
+  --ease: cubic-bezier(0.19, 1, 0.22, 1);
+  --dur: 100ms;
+  --title-track: -0.045em;
+  --phone-bezel: 10px;
+}
+
+/* The dark scheme. Not switched on by default. */
+.dark {
+  --background: #16151a;
+  --foreground: #f6f4ef;
+  --card: #1f1e24;
+  --card-foreground: #f6f4ef;
+  --popover: #1f1e24;
+  --popover-foreground: #f6f4ef;
+  --primary: #f6f4ef;
+  --primary-foreground: #16151a;
+  --secondary: #2a2930;
+  --secondary-foreground: #f6f4ef;
+  --muted: #2a292d;
+  --muted-foreground: #9a9998;
+  --accent: #2a292d;
+  --accent-foreground: #f6f4ef;
+  --destructive: #ff5a3a;
+  --destructive-foreground: #16151a;
+  --border: #2c2b31;
+  --input: #2c2b31;
+  --ring: #f6f4ef;
+  --heading: #ecebe8;
+  --body: #c9c6c1;
+  --caption: #8f8c88;
+  --rule: #2c2b31;
+  --pill: #2a2930;
+  --pill-hover: #35343c;
+  --stone: #2a2830;
+  --blue: #6aa6ff;
+  --app-blue: #2f9dff;
+  --sky: #6cc5ff;
+  --green: #3fd06a;
+  --orange: #ff7a45;
+  --gold: #e0aa45;
+  --yellow: #ffc85c;
+  --pink: #ff7cbb;
+  --purple: #a978ff;
+  --red: #ff5a3a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* The site's colours: text-heading, bg-pill, text-green, bg-stone, border-rule … */
+  --color-heading: var(--heading);
+  --color-body: var(--body);
+  --color-caption: var(--caption);
+  --color-rule: var(--rule);
+  --color-panel: var(--card);
+  --color-pill: var(--pill);
+  --color-pill-hover: var(--pill-hover);
+  --color-stone: var(--stone);
+  --color-blue: var(--blue);
+  --color-app-blue: var(--app-blue);
+  --color-sky: var(--sky);
+  --color-green: var(--green);
+  --color-orange: var(--orange);
+  --color-gold: var(--gold);
+  --color-yellow: var(--yellow);
+  --color-pink: var(--pink);
+  --color-purple: var(--purple);
+  --color-red: var(--red);
+
+  --font-display: "Plus Jakarta Sans Variable", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: var(--font-display);
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Claim codes need a mono face so 0/O and 1/I stay distinct. */
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: 22px;
+  --radius-3xl: 26px;
+  /* Buttons, tabs and chips: close to square, not pills. */
+  --radius-pill: 8px;
+
+  --ease-flavor: var(--ease);
+  /* 900px: where the landing page goes from one column to its desktop layout. */
+  --breakpoint-mid: 56.25rem;
+  --container-page: 1024px;
+
+  --animate-marquee: marquee 60s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes float {
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-body;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--yellow) 45%, transparent);
+  }
+}
+
+/* ---------- Type ---------- */
+/* Headlines: display face, weight 500 only, tight tracking, sentence case with a full stop. */
+@utility t-display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: var(--title-track);
+  color: var(--foreground);
+}
+@utility t-hero {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: var(--title-track);
+  color: var(--heading);
+  font-size: 44px;
+  line-height: 48px;
+  @media (min-width: 640px) {
+    font-size: 68px;
+    line-height: 1.1;
+  }
+}
+@utility t-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: var(--title-track);
+  color: var(--foreground);
+  font-size: 32px;
+  line-height: 35px;
+  @media (min-width: 640px) {
+    font-size: 44px;
+    line-height: 48px;
+  }
+}
+/* App page titles: the display face at a working size. */
+@utility t-page {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: var(--title-track);
+  color: var(--foreground);
+  font-size: 28px;
+  line-height: 32px;
+  @media (min-width: 640px) {
+    font-size: 34px;
+    line-height: 38px;
+  }
+}
+@utility t-lede {
+  font-size: 19px;
+  line-height: 27px;
+  letter-spacing: -0.01em;
+  color: var(--body);
+}
+/* Coloured section label. Never uppercase. Set the hue with a text-* colour. */
+@utility t-eyebrow {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+@utility t-code {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  font-variant-ligatures: none;
+}
+
+/* ---------- Surfaces ---------- */
+/* Beige panel: no border, no shadow. */
+/* Text links: blue, and a shade darker under the pointer. No underline. */
+@utility t-link {
+  color: var(--app-blue);
+  transition: color 120ms;
+  &:hover {
+    color: color-mix(in oklab, var(--app-blue), var(--foreground) 30%);
+  }
+}
+
+@utility panel {
+  background: var(--card);
+  border-radius: var(--radius);
+}
+/* A UI fragment floating a few millimetres above a panel. */
+@utility fragment {
+  background: var(--background);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 0 0 1px var(--rule),
+    0 2px 10px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+/* White card with only the soft inset ring. */
+@utility ringed {
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+/* The one real drop shadow (menus, highlighted tier). */
+@utility lift {
+  box-shadow:
+    inset 0 0 0 1px var(--rule),
+    0 3px 16px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+/* ---------- The ticket's finish ---------- */
+/* The punched notches are real holes, so whatever is behind (the page, a panel, the metal card in a
+   stack) shows through. Each is a slot 4.5% of the ticket's width deep and 9% of its height tall,
+   ending in a half circle. The mask is the ticket in five pieces: the bands above and below the
+   notches, the column between them, and a tile at each edge whose picture is solid except for that
+   half circle. */
+.ticket-notched {
+  --notch-l: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 2' preserveAspectRatio='xMaxYMid meet'%3E%3Cpath d='M0 0H1V2H0A1 1 0 0 0 0 0Z'/%3E%3C/svg%3E");
+  --notch-r: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 2' preserveAspectRatio='xMinYMid meet'%3E%3Cpath d='M1 0H0V2H1A1 1 0 0 1 1 0Z'/%3E%3C/svg%3E");
+  --solid: linear-gradient(#000 0 0);
+  --notch-mask:
+    var(--notch-l) left center / 4.5% 9% no-repeat,
+    var(--notch-r) right center / 4.5% 9% no-repeat,
+    var(--solid) top / 100% 45.6% no-repeat,
+    var(--solid) bottom / 100% 45.6% no-repeat,
+    var(--solid) center / 91.1% 100% no-repeat;
+  -webkit-mask: var(--notch-mask);
+  mask: var(--notch-mask);
+}
+
+/* Satin paper: the stone colour stays; a faint highlight lies across the middle and the corners are
+   a touch warmer, as if lit from the top left. */
+.ticket-paper {
+  --sheen: rgb(255 255 255 / 0.3);
+  background-image: linear-gradient(
+    112deg,
+    color-mix(in oklab, var(--stone), var(--gold) 5%) 0%,
+    var(--stone) 34%,
+    color-mix(in oklab, var(--stone), white 16%) 50%,
+    var(--stone) 66%,
+    color-mix(in oklab, var(--stone), var(--gold) 6%) 100%
+  );
+}
+.dark .ticket-paper {
+  --sheen: rgb(255 255 255 / 0.05);
+  background-image: linear-gradient(
+    112deg,
+    color-mix(in oklab, var(--stone), black 10%) 0%,
+    var(--stone) 34%,
+    color-mix(in oklab, var(--stone), white 5%) 50%,
+    var(--stone) 66%,
+    color-mix(in oklab, var(--stone), black 10%) 100%
+  );
+}
+/* The cards behind the front ticket in a stack are polished metal (platinum, then graphite), with
+   no notches of their own.
+   Each hangs from its top left corner, so it shows only along the right and bottom, never above,
+   and starts to the right of the front ticket's left notch, so nothing shows through that one.
+   On a wide ticket everything is halved, so the stack stays clear of the labels and the screen edge. */
+.ticket-behind {
+  position: absolute;
+  inset: 0 0 0 6%;
+  border-radius: 22px;
+  transform-origin: top left;
+  translate: var(--dx) var(--dy);
+  rotate: var(--tilt);
+  /* Polished metal: bands of light (`--hi`) and shade (`--lo`) on the diagonal, so they show along
+     both strips that peek out. The step from shade to light between 71% and 80% is the part that
+     sits behind the front ticket's right notch, so the notch shows a sheen, not one flat colour. */
+  background: linear-gradient(
+    135deg,
+    var(--hi) 0%,
+    var(--lo) 15%,
+    var(--hi) 31%,
+    var(--lo) 47%,
+    var(--hi) 60%,
+    var(--lo) 71%,
+    var(--hi) 80%,
+    var(--lo) 91%,
+    var(--hi) 100%
+  );
+  /* A lit top edge, and at most a whisper of an outline: a visible border makes it look drawn. */
+  box-shadow:
+    inset 0 1px 0 var(--edge),
+    inset 0 0 0 1px var(--ring);
+}
+/* Next to the front ticket: platinum. */
+.ticket-behind-1 {
+  --dx: 1.4%;
+  --dy: 0.8%;
+  --tilt: 0.7deg;
+  --hi: #f5f6f8;
+  --lo: #c3c8ce;
+  --edge: rgb(255 255 255 / 0.8);
+  --ring: rgb(50 60 70 / 0.04);
+}
+/* Behind that: graphite, dark enough to read as a second card and well short of black. */
+.ticket-behind-2 {
+  --dx: 2.8%;
+  --dy: 1.6%;
+  --tilt: 1.4deg;
+  --hi: #9a9fa6;
+  --lo: #585d64;
+  --edge: rgb(255 255 255 / 0.3);
+  --ring: transparent;
+}
+@container (min-width: 640px) {
+  .ticket-behind-1 {
+    --dx: 0.7%;
+    --dy: 0.4%;
+    --tilt: 0.35deg;
+  }
+  .ticket-behind-2 {
+    --dx: 1.4%;
+    --dy: 0.8%;
+    --tilt: 0.7deg;
+  }
+}
+
+/* A wide, faint band of light that drifts slowly across the ticket and back. It never reacts to
+   the pointer and sits under the text, the code strip and the QR. */
+.ticket-sheen {
+  position: absolute;
+  top: -30%;
+  left: 0;
+  width: 90%;
+  height: 160%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, var(--sheen) 50%, transparent 100%);
+  transform: translateX(-115%) skewX(-18deg);
+  animation: ticket-sheen 18s ease-in-out infinite alternate;
+}
+@keyframes ticket-sheen {
+  to {
+    transform: translateX(125%) skewX(-18deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticket-sheen {
+    animation: none;
+    transform: translateX(5%) skewX(-18deg);
+  }
+}
+
+/* ---------- Printable vouchers ---------- */
+/* Claim codes as cards to print and cut: business-card size, two across and five down, sharing
+   their cut lines. The sheet exists only while printing (see ExportCodes.tsx), and the printer
+   sees nothing else. Sizes are physical, so the cards come out at size when printed at 100%. */
+.voucher-print {
+  display: none;
+}
+@media print {
+  html.printing-vouchers body > *:not(.voucher-print) {
+    display: none !important;
+  }
+  html.printing-vouchers .voucher-print {
+    display: block;
+  }
+  html.printing-vouchers body {
+    background: #fff;
+  }
+}
+/* One sheet of paper, a hair short of its real height so a rounding error never spills a blank page.
+   The cards sit where a full sheet of ten would, counted from the top, so a last page with only a
+   few cards still lines up with the rest (and with pre-cut card stock). */
+.voucher-page {
+  box-sizing: border-box;
+  display: grid;
+  place-content: start center;
+  overflow: hidden;
+  break-after: page;
+}
+.voucher-page:last-child {
+  break-after: auto;
+}
+.voucher-page[data-paper='a4'] {
+  width: 210mm;
+  height: 296mm;
+  padding-top: 11mm;
+  --voucher-w: 85mm;
+  --voucher-h: 55mm;
+}
+.voucher-page[data-paper='letter'] {
+  width: 8.5in;
+  height: 10.9in;
+  padding-top: 0.5in;
+  --voucher-w: 3.5in;
+  --voucher-h: 2in;
+}
+/* For a print shop: each card is its own page, the card's size plus the bleed they trim away
+   (3mm, or an eighth of an inch). The card is white, so the bleed is simply more white. */
+.voucher-page[data-layout='single'][data-paper='a4'] {
+  width: 91mm;
+  height: 60.6mm;
+  padding-top: 3mm;
+}
+.voucher-page[data-layout='single'][data-paper='letter'] {
+  width: 3.75in;
+  height: 2.235in;
+  padding-top: 0.125in;
+}
+.voucher-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, var(--voucher-w));
+  grid-auto-rows: var(--voucher-h);
+}
+.voucher-page[data-layout='single'] .voucher-grid {
+  grid-template-columns: var(--voucher-w);
+}
+/* Crop marks: short ticks in the margin, in line with every cut. Nothing is printed on the cut
+   itself, so a blade that lands a hair off leaves no ink on the card's edge. */
+.voucher-crop {
+  position: absolute;
+  background: #000;
+}
+.voucher-crop[data-dir='v'] {
+  width: 0.2mm;
+  height: 3mm;
+  translate: -0.1mm 0;
+}
+.voucher-crop[data-dir='h'] {
+  width: 3mm;
+  height: 0.2mm;
+  translate: 0 -0.1mm;
+}
+/* White, with ink only where it says something: a hundred of these shouldn't empty a cartridge. */
+.voucher {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 4.5mm 5mm;
+  background: #fff;
+  color: #121212;
+  font-family: var(--font-sans);
+}
+.voucher-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3mm;
+}
+.voucher-mark {
+  font-size: 9.5pt;
+  color: #343433;
+}
+.voucher-caption {
+  margin-top: 3mm;
+  font-size: 6.2pt;
+  font-weight: 600;
+  color: #a97a22;
+}
+.voucher-value {
+  font-family: var(--font-display);
+  font-size: 25pt;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: #343433;
+}
+.voucher-qr {
+  flex: none;
+  width: 21mm;
+  height: 21mm;
+}
+.voucher-code {
+  font-family: var(--font-mono);
+  font-size: 8.4pt;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.voucher-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.2mm;
+  font-size: 6.2pt;
+  color: #6b6968;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  /* Print the ticket's paper colour and the panels as they look on screen. */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
