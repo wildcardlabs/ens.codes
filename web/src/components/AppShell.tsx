@@ -3,6 +3,7 @@ import type { Go, Page } from '@/App'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 import { Wrap } from './ds/primitives'
+import { Socials } from './ds/Socials'
 import { Key } from './ds/stickers'
 import { Wordmark, WORDMARK_IN_HEADER } from './ds/Wordmark'
 import { WalletChoices, WalletMenu } from './wallet'
@@ -55,13 +56,14 @@ export function AppShell({ page, go, children }: { page: Page; go: Go; children:
       <footer className="no-print pb-10 text-[13px] text-caption">
         <Wrap className="flex flex-wrap items-center justify-between gap-3">
           <span>© {new Date().getFullYear()} Namepass LLC. All rights reserved.</span>
-          <span className="flex gap-5 [&_a:hover]:text-foreground [&_a]:transition-colors [&_a]:duration-200">
-            <a href="https://namepass.com" target="_blank" rel="noreferrer">
-              Namepass
+          <span className="flex flex-wrap items-center gap-x-5 gap-y-2 [&>a:hover]:text-foreground [&>a]:transition-colors [&>a]:duration-200">
+            <a href="/terms" onClick={link('terms')}>
+              Terms
             </a>
-            <a href="https://www.npmjs.com/package/ens-budget" target="_blank" rel="noreferrer">
-              ens-budget
+            <a href="/privacy" onClick={link('privacy')}>
+              Privacy
             </a>
+            <Socials />
           </span>
         </Wrap>
       </footer>

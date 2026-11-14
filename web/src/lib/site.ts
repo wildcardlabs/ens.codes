@@ -6,7 +6,12 @@
 export const SITE_URL = 'https://ens.codes'
 export const SITE_NAME = 'ens.codes'
 
-export type PageKey = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard'
+/** Where else the project lives. */
+export const GITHUB_URL = 'https://github.com/wildcardlabs/ens.codes'
+export const X_HANDLE = 'enscodes'
+export const X_URL = `https://x.com/${X_HANDLE}`
+
+export type PageKey = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard' | 'terms' | 'privacy'
 export type PageMeta = { path: string; title: string; description: string; /** False: kept out of search results. */ index: boolean }
 
 const ABOUT = 'Buy a claim code with USDC and hand it to anyone. They redeem it to renew any .eth name, no wallet needed. A code only ever pays for ENS renewals.'
@@ -27,6 +32,8 @@ export const PAGES: Record<PageKey, PageMeta> = {
   },
   codes: { path: '/codes', title: `My codes | ${SITE_NAME}`, description: 'The claim codes bought with your wallet.', index: false },
   dashboard: { path: '/dashboard', title: `Dashboard | ${SITE_NAME}`, description: ABOUT, index: false },
+  terms: { path: '/terms', title: `Terms of Use | ${SITE_NAME}`, description: `The terms that apply to using ${SITE_NAME}.`, index: true },
+  privacy: { path: '/privacy', title: `Privacy Policy | ${SITE_NAME}`, description: `What ${SITE_NAME} does with information when you use it.`, index: true },
 }
 
 /** The landing page's questions, also given to search engines as they are. */
@@ -46,7 +53,7 @@ const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').rep
 function structuredData(): string {
   const data = [
     { '@context': 'https://schema.org', '@type': 'WebSite', name: SITE_NAME, url: `${SITE_URL}/` },
-    { '@context': 'https://schema.org', '@type': 'Organization', name: SITE_NAME, url: `${SITE_URL}/`, logo: `${SITE_URL}/logo.png` },
+    { '@context': 'https://schema.org', '@type': 'Organization', name: SITE_NAME, url: `${SITE_URL}/`, logo: `${SITE_URL}/logo.png`, sameAs: [X_URL, GITHUB_URL] },
     {
       '@context': 'https://schema.org',
       '@type': 'FAQPage',
@@ -75,6 +82,7 @@ export function headTags(key: PageKey): string {
     '<meta property="og:image:height" content="630" />',
     '<meta property="og:image:alt" content="A claim code ticket for ENS renewals, beside the words: Renewals you can hand over." />',
     '<meta name="twitter:card" content="summary_large_image" />',
+    `<meta name="twitter:site" content="@${X_HANDLE}" />`,
     ...(key === 'home' ? [structuredData()] : []),
   ].join('\n    ')
 }

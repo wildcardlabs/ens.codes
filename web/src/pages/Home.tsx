@@ -5,6 +5,7 @@ import { normalize } from 'viem/ens'
 import type { Go, Page } from '@/App'
 import { CodeTicket } from '@/components/ds/CodeTicket'
 import { Eyebrow, Field, type Hue, Panel, Rows, Rule, SplitBar, StatusPill, TickList, Token, Wrap } from '@/components/ds/primitives'
+import { Socials } from '@/components/ds/Socials'
 import { Bean, Coin, Key, Spark, Star, Vault } from '@/components/ds/stickers'
 import { EnsMark, Mark, Wordmark, WORDMARK_IN_HEADER } from '@/components/ds/Wordmark'
 import { Badge } from '@/components/ui/badge'
@@ -73,22 +74,14 @@ export default function Home({ go, onCode }: { go: Go; onCode: (code: string) =>
           <span className="inline-flex items-center gap-2">
             <Mark className="h-4" />© {new Date().getFullYear()} Namepass LLC. All rights reserved.
           </span>
-          <span className="flex flex-wrap gap-x-6 gap-y-2 [&_a:hover]:text-foreground [&_a]:transition-colors [&_a]:duration-200">
-            <Nav to="buy" go={go}>
-              Buy
+          <span className="flex flex-wrap items-center gap-x-6 gap-y-2 [&_a:hover]:text-foreground [&_a]:transition-colors [&_a]:duration-200">
+            <Nav to="terms" go={go}>
+              Terms
             </Nav>
-            <Nav to="redeem" go={go}>
-              Redeem
+            <Nav to="privacy" go={go}>
+              Privacy
             </Nav>
-            <Nav to="codes" go={go}>
-              My codes
-            </Nav>
-            <a href="https://namepass.com" target="_blank" rel="noreferrer">
-              Namepass
-            </a>
-            <a href="https://www.npmjs.com/package/ens-budget" target="_blank" rel="noreferrer">
-              ens-budget
-            </a>
+            <Socials />
           </span>
         </Wrap>
       </footer>

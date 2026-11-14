@@ -11,13 +11,15 @@ import Redeem from '@/pages/Redeem'
 
 /** The owner's dashboard is its own bundle: visitors never download it, and nothing links to it. */
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Legal = lazy(() => import('@/pages/Legal'))
 
-/** `home` is the public landing page; buy, redeem and codes are the app; `dashboard` is the owner's. */
-export type Page = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard'
+/** `home` is the public landing page; buy, redeem and codes are the app; `dashboard` is the owner's; terms and privacy are the legal pages. */
+export type Page = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard' | 'terms' | 'privacy'
 export type Go = (p: Page, search?: string) => void
 
+const EXACT: Record<string, Page> = { '/dashboard': 'dashboard', '/terms': 'terms', '/privacy': 'privacy' }
 const pathToPage = (path: string): Page =>
-  path.startsWith('/redeem') ? 'redeem' : path.startsWith('/codes') ? 'codes' : path.startsWith('/buy') ? 'buy' : path === '/dashboard' ? 'dashboard' : 'home'
+  path.startsWith('/redeem') ? 'redeem' : path.startsWith('/codes') ? 'codes' : path.startsWith('/buy') ? 'buy' : (EXACT[path] ?? 'home')
 const pageToPath = (p: Page) => (p === 'home' ? '/' : `/${p}`)
 
 /** Keep the document's title, description and search tags in step with the page being shown. */
@@ -89,7 +91,11 @@ export default function App() {
         </Suspense>
       ) : (
         <AppShell page={page} go={go}>
-          {!VAULT ? (
+          {page === 'terms' || page === 'privacy' ? (
+            <Suspense fallback={null}>
+              <Legal doc={page} />
+            </Suspense>
+          ) : !VAULT ? (
             <p className="max-w-[560px] rounded-xl bg-card p-4 text-[14px] text-red">No vault address configured. Set VITE_VAULT in web/.env.local.</p>
           ) : page === 'buy' ? (
             <Buy go={go} />
