@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { createServer, defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite'
 import { configFromEnv, handle } from '../api/_lib/relay.js'
 import { handleStats, statsConfigFromEnv } from '../api/_lib/stats.js'
-import { headTags, type PageKey } from './src/lib/site'
+import { headTags, PAGES, type PageKey } from './src/lib/site'
 
 /**
  * The server functions on the dev server. In production `/api/redeem` and `/api/stats` are Vercel
@@ -44,8 +44,8 @@ function devApi(env: Record<string, string>): Plugin {
 /**
  * Each page's own title, description and share tags, in the HTML itself: search engines and link
  * previews read them without running the app. The landing page's go into index.html; a build also
- * writes buy.html, redeem.html, codes.html and dashboard.html, the same app with that page's tags,
- * which the host serves at /buy, /redeem, /codes and /dashboard.
+ * writes one file for every other page (buy.html, redeem.html and so on), the same app with that
+ * page's tags, which the host serves at /buy, /redeem and so on.
  *
  * A build also draws the landing page once and puts the result into index.html, so its words are in
  * the file for anything that doesn't run the app. The other pages start empty, as before.
@@ -70,7 +70,7 @@ function pageHeads(): Plugin {
       const shell = fs.readFileSync(index, 'utf8')
       const block = /<!--page-->[\s\S]*?<!--\/page-->/
       if (!block.test(shell) || !shell.includes(ROOT)) throw new Error('index.html has lost its <!--page--> marker or its empty #root.')
-      for (const key of ['buy', 'redeem', 'codes', 'dashboard'] satisfies PageKey[])
+      for (const key of (Object.keys(PAGES) as PageKey[]).filter((k) => k !== 'home'))
         fs.writeFileSync(path.join(out, `${key}.html`), shell.replace(block, () => headTags(key)))
       const page = await landingPage(root, mode)
       fs.writeFileSync(index, shell.replace(block, () => headTags('home')).replace(ROOT, () => `<div id="root">${page}</div>`))
