@@ -514,10 +514,10 @@ function Money() {
  */
 function Events({ go }: { go: Go }) {
   const rows: [string, 'Redeemed' | 'Unused' | 'Cancelled', string][] = [
-    ['$10', 'Redeemed', 'vitalik.eth'],
-    ['$10', 'Redeemed', 'nick.eth +2'],
-    ['$10', 'Unused', '—'],
-    ['$10', 'Cancelled', '—'],
+    ['$5', 'Redeemed', 'vitalik.eth'],
+    ['$5', 'Redeemed', 'nick.eth +2'],
+    ['$5', 'Unused', '—'],
+    ['$5', 'Cancelled', '—'],
   ]
   const color = { Redeemed: 'var(--app-blue)', Unused: 'var(--green)', Cancelled: 'var(--caption)' }
   return (
@@ -537,7 +537,7 @@ function Events({ go }: { go: Go }) {
           <div className="flex items-baseline justify-between">
             <span className="t-display text-[26px] leading-[30px]">200 codes</span>
             <span className="text-[13px] text-caption">
-              <span className="font-medium text-foreground">$640.00</span> still out there
+              <span className="font-medium text-foreground">$320.00</span> still out there
             </span>
           </div>
           <SplitBar
