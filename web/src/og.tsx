@@ -24,7 +24,7 @@ function ShareImage() {
         <Bean size={120} className="absolute -bottom-16 -right-12 z-10 rotate-6" />
         <Star size={30} className="absolute -top-12 right-8 text-yellow" />
         <Spark size={26} className="absolute -bottom-12 left-6 text-sky" />
-        <CodeTicket amount={25_000000n} qr="https://ens.codes" shimmer={false} />
+        <CodeTicket amount={10_000000n} qr="https://ens.codes" shimmer={false} />
       </div>
     </div>
   )

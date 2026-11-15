@@ -380,14 +380,14 @@ function Journey() {
     {
       title: 'Buy',
       body: 'Choose an amount and pay in USDC.',
-      ticket: <CodeTicket amount={25_000000n} ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} ens={false} shimmer={false} />,
       sticker: <Coin size={50} className="absolute -right-4 -top-4 rotate-12" />,
       chips: ['$5', '$10', '$25', '$50'],
     },
     {
       title: 'Hand it over',
       body: 'Send the code, a link, or the ticket as an image.',
-      ticket: <CodeTicket amount={25_000000n} code={code} ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} code={code} ens={false} shimmer={false} />,
       sticker: <Key size={64} className="absolute -right-5 -top-3 rotate-12" />,
       chips: [
         <>
@@ -404,7 +404,7 @@ function Journey() {
     {
       title: 'Redeem',
       body: `They pick up to ${MAX_NAMES} .eth names to renew.`,
-      ticket: <CodeTicket amount={25_000000n} code={code} stamp="Claimed" ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} code={code} stamp="Claimed" ens={false} shimmer={false} />,
       sticker: <Bean size={58} className="absolute -right-4 -top-5 rotate-6" />,
       chips: ['vitalik.eth', 'nick.eth'],
     },

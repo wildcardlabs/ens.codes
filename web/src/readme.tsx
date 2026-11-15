@@ -86,7 +86,7 @@ function Banner() {
         <Bean size={112} className="absolute -bottom-14 -right-10 z-10 rotate-6" />
         <Star size={28} className="absolute -top-11 right-8 text-yellow" />
         <Spark size={24} className="absolute -bottom-11 left-6 text-sky" />
-        <CodeTicket amount={25_000000n} qr="https://ens.codes" shimmer={false} />
+        <CodeTicket amount={10_000000n} qr="https://ens.codes" shimmer={false} />
       </div>
     </div>
   )
@@ -99,19 +99,19 @@ function Journey() {
     {
       title: 'Buy',
       body: 'Pick an amount and pay in USDC.',
-      ticket: <CodeTicket amount={25_000000n} ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} ens={false} shimmer={false} />,
       sticker: <Coin size={50} className="absolute -right-4 -top-4 rotate-12" />,
     },
     {
       title: 'Hand it over',
       body: 'Send the code, a link or the ticket.',
-      ticket: <CodeTicket amount={25_000000n} code={CODE} ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} code={CODE} ens={false} shimmer={false} />,
       sticker: <Key size={62} className="absolute -right-5 -top-3 rotate-12" />,
     },
     {
       title: 'Redeem',
       body: 'Renew up to 5 .eth names.',
-      ticket: <CodeTicket amount={25_000000n} code={CODE} stamp="Claimed" ens={false} shimmer={false} />,
+      ticket: <CodeTicket amount={10_000000n} code={CODE} stamp="Claimed" ens={false} shimmer={false} />,
       sticker: <Bean size={56} className="absolute -right-4 -top-5 rotate-6" />,
     },
   ]
