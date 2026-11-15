@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { keccak256, parseGwei, recoverTransactionAddress, serializeTransaction, type Hex } from 'viem'
 import { generatePrivateKey, privateKeyToAccount, sign } from 'viem/accounts'
-import { configFromEnv, parseRedeem } from './relay.js'
+import { solve, type Pricing } from 'ens-budget'
+import { configFromEnv, parseRedeem, unspent } from './relay.js'
 import { kmsAccount, parseDerSignature } from './signer.js'
 
 const KEY = generatePrivateKey()
@@ -83,7 +84,8 @@ test('requests out of shape or for another relayer are refused', () => {
     ['expired', (b) => ((b.redeem.deadline = String(now - 1)), b)],
     ['dated too far ahead', (b) => ((b.redeem.deadline = String(now + 7200)), b)],
     ['no names', (b) => ((b.redeem.renewals = []), b)],
-    ['eleven names', (b) => ((b.redeem.renewals = Array(11).fill(b.redeem.renewals[0])), b)],
+    ['dated too soon', (b) => ((b.redeem.deadline = String(now + 60)), b)],
+    ['six names', (b) => ((b.redeem.renewals = Array(6).fill(b.redeem.renewals[0])), b)],
     ['index past 255', (b) => ((b.redeem.index = '256'), b)],
     ['a number, not a string', (b) => (((b.redeem as Record<string, unknown>).maxAmount = 5), b)],
     ['short signature', (b) => ((b.signature = '0x1234'), b)],
@@ -92,6 +94,66 @@ test('requests out of shape or for another relayer are refused', () => {
     ['not an object', () => 'x'],
   ]
   for (const [name, change] of cases) assert.throws(() => parseRedeem(change(good()), RELAYER, now), name)
+})
+
+test('the site\'s own range of deadlines and names is accepted', () => {
+  for (const ahead of [600, 1800, 3600]) {
+    const b = good()
+    b.redeem.deadline = String(now + ahead)
+    assert.ok(parseRedeem(b, RELAYER, now), `${ahead}s ahead`)
+  }
+  const b = good()
+  b.redeem.renewals = Array(5).fill(b.redeem.renewals[0])
+  assert.equal(parseRedeem(b, RELAYER, now)[0].renewals.length, 5)
+})
+
+/** ENS's USDC pricing: $5 a year for 5+ characters, $160 for 4, $640 for 3, and a discount from one year. */
+const YEAR = 31_536_000n
+const perYear = (usd: bigint) => (usd * 10n ** 18n) / YEAR
+const flat: Pricing = {
+  oracle: '0x0000000000000000000000000000000000000001',
+  token: '0x0000000000000000000000000000000000000002',
+  baseRates: [0n, 0n, perYear(640n), perYear(160n), perYear(5n)],
+  discountPoints: [],
+  discountDenominator: 0n,
+  tokenRatio: { numer: 1n, denom: 10n ** 12n },
+}
+const tiered: Pricing = { ...flat, discountPoints: [{ duration: YEAR, numer: 9_500n }, { duration: 3n * YEAR, numer: 8_000n }], discountDenominator: 10_000n }
+
+test('a redemption that spends the code the way the site does passes', () => {
+  for (const pricing of [flat, tiered]) {
+    for (const value of [1_000_000n, 5_000_000n, 12_340_000n, 500_000_000n]) {
+      // One name takes the whole code.
+      const one = solve(pricing, { label: 'namepass', budget: value })
+      assert.equal(unspent(value, [{ pricing, label: 'namepass', duration: one.duration }]), null, `one name, ${value}`)
+      // Several names, split the way the site splits: equal shares to the cent, the last takes the rest.
+      const labels = ['namepass', 'nick', 'abc', 'vitalik', 'ensdomains'].filter((l) => solve(pricing, { label: l, budget: value / 5n }).duration > 0n)
+      const share = (value / BigInt(labels.length) / 10_000n) * 10_000n
+      const names = labels.map((label, i) => {
+        const budget = i === labels.length - 1 ? value - share * BigInt(labels.length - 1) : share
+        return { pricing, label, duration: solve(pricing, { label, budget }).duration }
+      })
+      assert.equal(unspent(value, names), null, `${labels.length} names, ${value}`)
+    }
+  }
+})
+
+test('a redemption that leaves money a longer renewal could spend is refused', () => {
+  for (const pricing of [flat, tiered]) {
+    const value = 25_000_000n
+    // One second: nearly the whole code would go back to the buyer.
+    const left = unspent(value, [{ pricing, label: 'namepass', duration: 1n }])
+    assert.ok(left !== null && left > 24_000_000n)
+    // Every name short by a day.
+    const best = solve(pricing, { label: 'namepass', budget: value }).duration
+    assert.notEqual(unspent(value, [{ pricing, label: 'namepass', duration: best - 86_400n }]), null)
+    // Five names at one second each.
+    assert.notEqual(unspent(value, Array(5).fill({ pricing, label: 'namepass', duration: 1n })), null)
+  }
+})
+
+test('a redemption that costs more than the code is left to the vault to refuse', () => {
+  assert.equal(unspent(1_000_000n, [{ pricing: flat, label: 'namepass', duration: 10n * YEAR }]), null)
 })
 
 test('settings: no signer means relaying is off; a half-set signer is an error', () => {

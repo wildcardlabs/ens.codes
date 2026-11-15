@@ -10,6 +10,7 @@
     "@aws-sdk/client-kms": "3.1151.0",
     "@aws-sdk/credential-provider-web-identity": "3.972.80",
     "@vercel/oidc": "3.8.4",
+    "ens-budget": "^0.1.1",
     "viem": "^2.57.17"
   },
   "devDependencies": {
