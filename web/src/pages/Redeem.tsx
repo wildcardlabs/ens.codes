@@ -540,11 +540,19 @@ function NameRow({
   )
 }
 
-/** A ready-made post about the renewal, as a link to X's compose screen. The person can edit it there. */
+/**
+ * A ready-made post about the renewal, as a link to X's compose screen. The person can edit it there.
+ * One name gets its length; past three, the rest are counted, so the post stays well inside X's limit.
+ */
 function postUrl(items: Success['items']): string {
   const names = items.map((i) => `${i.label}.eth`)
-  const what = names.length === 1 ? `${names[0]} for ${fmtDurationPrecise(items[0].duration)}` : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
-  const text = `Just renewed ${what} with @${X_HANDLE} 🎟️`
+  const what =
+    names.length === 1
+      ? `${names[0]} for ${fmtDurationPrecise(items[0].duration)}`
+      : names.length <= 3
+        ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+        : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more names`
+  const text = `Just used an @${X_HANDLE} claim code to renew ${what} 🎟️`
   return `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SITE_URL)}`
 }
 
