@@ -50,7 +50,7 @@ they use it to renew any `.eth` name, without needing a wallet of their own.
     </td>
     <td width="50%" valign="top">
       <h3>No wallet to redeem</h3>
-      Whoever holds the code can redeem it on the site. A wallet works too.
+      Redeeming takes only the code. We cover the network fee.
     </td>
   </tr>
   <tr>
