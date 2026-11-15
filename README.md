@@ -18,7 +18,8 @@
 <p align="center">
   <a href="https://ens.codes"><img alt="Network: Sepolia" src="https://img.shields.io/badge/network-Sepolia-3784f4?style=flat-square"></a>
   <img alt="Solidity 0.8.28" src="https://img.shields.io/badge/solidity-0.8.28-343433?style=flat-square">
-  <img alt="Built with Foundry" src="https://img.shields.io/badge/built%20with-Foundry-ca9230?style=flat-square">
+  <a href="https://github.com/foundry-rs/foundry"><img alt="Built with Foundry" src="https://img.shields.io/badge/built%20with-Foundry-ca9230?style=flat-square"></a>
+  <a href="https://github.com/wildcardlabs/ens-budget"><img alt="Built with ens-budget" src="https://img.shields.io/badge/built%20with-ens--budget-0080bc?style=flat-square"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-34c759?style=flat-square"></a>
 </p>
 
@@ -93,7 +94,7 @@ to the buyer.
 | **Site**: buy, redeem and manage codes | [`web/`](web) |
 | **Vault**: `ClaimCodeVault`, the contract that holds and spends codes | [`contracts/`](contracts) |
 | **Relayer**: sends redemptions for people without a wallet | [`api/`](api) |
-| **Pricing**: [ens-budget](https://github.com/wildcardlabs/ens-budget), the longest renewal a budget buys | |
+| **Pricing**: the longest renewal a budget buys | [`ens-budget`](https://github.com/wildcardlabs/ens-budget) |
 
 <br>
 
@@ -124,9 +125,3 @@ npm test                              # relayer tests, from the repository root
 ## License
 
 [MIT](LICENSE) © 2026 Namepass LLC
-
-<br>
-
-<p align="center">
-  <a href="https://ens.codes"><img alt="ens.codes" src="brand/ens-codes-icon-black-rounded.svg" width="40"></a>
-</p>
