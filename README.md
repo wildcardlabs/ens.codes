@@ -1,72 +1,132 @@
-# ens.codes
+<a href="https://ens.codes">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/banner-dark.png">
+    <img alt="ens.codes: renewals you can hand over. Claim codes for ENS renewals." src=".github/readme/banner-light.png" width="100%">
+  </picture>
+</a>
 
-Claim codes for ENS renewals. Buy a code with USDC, hand it to anyone, and they use it to renew any
-`.eth` name. A code can only ever pay for ENS renewals.
+<p align="center">
+  <a href="https://ens.codes"><b>ens.codes</b></a>
+  &nbsp;·&nbsp;
+  <a href="#how-it-works">How it works</a>
+  &nbsp;·&nbsp;
+  <a href="#architecture">Architecture</a>
+  &nbsp;·&nbsp;
+  <a href="#run-it-locally">Run it locally</a>
+</p>
 
-Running on the Sepolia testnet at [ens.codes](https://ens.codes). The contract has not been
-audited: don't use it with real funds.
+<p align="center">
+  <a href="https://ens.codes"><img alt="Network: Sepolia" src="https://img.shields.io/badge/network-Sepolia-3784f4?style=flat-square"></a>
+  <img alt="Solidity 0.8.28" src="https://img.shields.io/badge/solidity-0.8.28-343433?style=flat-square">
+  <img alt="Built with Foundry" src="https://img.shields.io/badge/built%20with-Foundry-ca9230?style=flat-square">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-34c759?style=flat-square"></a>
+</p>
+
+<br>
+
+**ens.codes** turns USDC into claim codes for ENS renewals. Buy a code, hand it to anyone, and
+they use it to renew any `.eth` name, without needing a wallet of their own.
+
+> [!NOTE]
+> ens.codes is live on the Sepolia testnet ahead of its mainnet launch.
+
+<br>
 
 ## How it works
 
-- **A code is a key.** Each code (`XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`) derives a private key. The vault
-  only ever sees that key's address, and a redemption is authorised by the key's signature, so the
-  code itself never goes onchain.
-- **Buy.** One code, or up to 200 of the same value in one transaction. The buyer pays each code's
-  value plus a flat 0.05 USDC fee. A whole purchase is stored as one record, with the codes
-  committed as a Merkle root.
-- **Redeem.** A code is spent once, on up to 5 names. Either every name renews or the code stays
-  unused. Whatever a renewal doesn't spend goes back to the buyer in the same transaction, and
-  nothing can be paid to whoever submits it.
-- **No wallet needed to redeem.** The code signs the redemption in the browser and a relayer
-  submits it and pays the network fee. A wallet works too.
-- **Cancel.** Until a code is used its value is still the buyer's, who can cancel it at any time.
-  Codes don't expire.
-- **Recover.** Codes are derived from a signature by the buying wallet, so the buyer can reveal them
-  again later. Nothing is stored on a server.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/journey-dark.png">
+  <img alt="One ticket, three stops: buy a code in USDC, hand it over, and redeem it on up to five .eth names." src=".github/readme/journey-light.png" width="100%">
+</picture>
 
-## Repository
+<br>
 
-| Path | What |
-| --- | --- |
-| `contracts/` | The vault (`src/ClaimCodeVault.sol`), its tests and deploy script. Foundry |
-| `web/` | The site: landing page, buy, redeem and "My codes". React, Vite, viem |
-| `api/` | Serverless functions: the relayer, which submits redemptions, and the owner's dashboard figures |
-| `infra/` | CloudFormation for the relayer's signing key (AWS KMS) |
-| `scripts/` | Local fork and deploy helpers |
-| `brand/` | Logo files |
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Used once</h3>
+      A code renews up to 5 names in one go. Whatever the renewals don't cost goes back to the buyer.
+    </td>
+    <td width="50%" valign="top">
+      <h3>No wallet to redeem</h3>
+      Whoever holds the code can redeem it on the site. A wallet works too.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Codes for a crowd</h3>
+      Buy up to 200 codes at once and export them as a spreadsheet, printable vouchers or images.
+    </td>
+    <td width="50%" valign="top">
+      <h3>Who owns a code</h3>
+      Holding a code lets you spend it, but its value stays with the buyer until it's used. The buyer can cancel an unused code at any time, and codes don't expire.
+    </td>
+  </tr>
+</table>
 
-## Run locally
+> [!NOTE]
+> Codes are intended as gifts and are not designed for resale.
 
-Needs [Foundry](https://book.getfoundry.sh/) and Node.
+<br>
+
+## Where the money sits
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/money-dark.png">
+  <img alt="The buyer pays into the vault. The vault pays ENS when a code is redeemed, refunds the buyer for unused codes and change, and sends fees to a recipient fixed at deploy." src=".github/readme/money-light.png" width="100%">
+</picture>
+
+A code's value sits in an onchain vault, not with us. It can only go to ENS for a renewal or back
+to the buyer.
+
+<br>
+
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/stack-dark.png">
+  <img alt="The site prices names and signs a redemption with the code. A relayer or a wallet sends it to the vault, which renews the names with ENS and refunds the rest to the buyer." src=".github/readme/stack-light.png" width="100%">
+</picture>
+
+| Part | Where |
+| :-- | :-- |
+| **Site**: buy, redeem and manage codes | [`web/`](web) |
+| **Vault**: `ClaimCodeVault`, the contract that holds and spends codes | [`contracts/`](contracts) |
+| **Relayer**: sends redemptions for people without a wallet | [`api/`](api) |
+| **Pricing**: [ens-budget](https://github.com/wildcardlabs/ens-budget), the longest renewal a budget buys | |
+
+<br>
+
+## Run it locally
+
+You need [Foundry](https://book.getfoundry.sh/) and Node 22 or later. The local setup forks mainnet,
+so it renews real ENS names with test money.
 
 ```bash
 scripts/local-fork.sh                 # terminal 1: a mainnet fork on :8545
-scripts/local-setup.sh                # terminal 2: deploy the vault, write web/.env.local
-npm install                           # the relayer's dependencies
+```
+
+```bash
+scripts/local-setup.sh                # terminal 2: deploy the vault and write web/.env.local
+npm install
 cd web && npm install && npm run dev  # http://localhost:5173
 ```
 
-Pick **Anvil dev wallet (local)** in the wallet menu; it only exists on the local fork. To use
-your own wallet, pass its address to `local-setup.sh` and it is funded with test ETH and USDC.
-
-## Test
+Pick **Anvil dev wallet (local)** in the wallet menu.
 
 ```bash
-cd contracts && forge test            # unit, fuzz and invariant tests
-MAINNET_RPC_URL=<url> forge test --match-contract Fork   # real renewals on a fork
-npm test                              # relayer (from the repo root)
+cd contracts && forge test            # contract tests
+npm test                              # relayer tests, from the repository root
 ```
 
-## Deploy
-
-- **Contract.** `scripts/deploy-sepolia.sh` deploys the vault from a Foundry keystore account and
-  prints the values the site needs.
-- **Site.** Set the `VITE_` variables listed in `web/.env.example` and build `web/`. `vercel.json`
-  holds the build settings and security headers.
-- **Relayer** (optional). Deploy `infra/relayer-signer.yaml`, then set `RELAYER_KMS_KEY_ARN`,
-  `RELAYER_KMS_ROLE_ARN`, `RELAYER_ADDRESS` and `RELAYER_ORIGINS`, and fund the relayer address
-  with ETH for gas. Without these the site asks for a wallet instead.
+<br>
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 Namepass LLC
+
+<br>
+
+<p align="center">
+  <a href="https://ens.codes"><img alt="ens.codes" src="brand/ens-codes-icon-black-rounded.svg" width="40"></a>
+</p>

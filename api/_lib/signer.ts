@@ -16,8 +16,8 @@ import { mnemonicToAccount, toAccount } from 'viem/accounts'
 /**
  * The relayer signs through AWS KMS: the key never leaves AWS, and Vercel holds no AWS secret. The
  * function proves which Vercel project it is with a short-lived OIDC token, and AWS lets only that
- * project's production deployment sign with this one key (see infra/relayer-signer.yaml). Every
- * signature must recover to RELAYER_ADDRESS.
+ * project's production deployment sign with this one key. Every signature must recover to
+ * RELAYER_ADDRESS.
  */
 
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
