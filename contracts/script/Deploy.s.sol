@@ -10,7 +10,9 @@ import {ClaimCodeVault} from "../src/ClaimCodeVault.sol";
 ///   forge script script/Deploy.s.sol --rpc-url <url> --broadcast [--account <keystore>]
 ///
 /// Required env: FEE_RECIPIENT, the address collected protocol fees are swept to (fixed for this deployment).
-/// Optional env: OWNER (default: deployer), MAX_CODE_AMOUNT (default 500 USDC), REFERRER (bytes32).
+/// Optional env: OWNER (default: deployer), MAX_CODE_AMOUNT in USDC units (default 500000000, 500 USDC),
+/// REFERRER (bytes32, default: FEE_RECIPIENT as an address in the low 20 bytes, the form ENS referral
+/// programs read).
 /// The protocol fee itself is fixed in the contract: 0.05 USDC per code.
 contract Deploy is Script {
     function run() external returns (ClaimCodeVault vault) {
@@ -19,17 +21,26 @@ contract Deploy is Script {
         renewers[0] = registrar;
         renewers[1] = renewerV1;
 
+        // Outside this range every purchase would fail: below the smallest code (the vault's MIN_CODE_AMOUNT,
+        // 1 USDC), or above what a code can hold.
+        uint256 maxCodeAmount = vm.envOr("MAX_CODE_AMOUNT", uint256(500e6));
+        require(
+            maxCodeAmount >= 1e6 && maxCodeAmount <= type(uint48).max,
+            "MAX_CODE_AMOUNT is in USDC units: 500 USDC is 500000000"
+        );
+        uint96 maxCode = uint96(maxCodeAmount);
+
         vm.startBroadcast();
         address owner = vm.envOr("OWNER", msg.sender);
-        uint96 maxCode = uint96(vm.envOr("MAX_CODE_AMOUNT", uint256(500e6)));
-        bytes32 referrer = vm.envOr("REFERRER", bytes32("namepass"));
         address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+        bytes32 referrer = vm.envOr("REFERRER", bytes32(uint256(uint160(feeRecipient))));
         vault = new ClaimCodeVault(IERC20(usdc), renewers, referrer, maxCode, owner, feeRecipient);
         vm.stopBroadcast();
 
         console.log("ClaimCodeVault", address(vault));
         console.log("deploy block", block.number);
         console.log("fee recipient", feeRecipient);
+        console.logBytes32(referrer);
     }
 
     /// Same addresses as ens-budget's `addresses` export.

@@ -2,6 +2,7 @@ import {
   BaseError,
   ContractFunctionRevertedError,
   createPublicClient,
+  encodeAbiParameters,
   encodeFunctionData,
   fallback,
   getAddress,
@@ -14,6 +15,7 @@ import {
   type Hex,
   type LocalAccount,
 } from 'viem'
+import { getPricing, priceOf, type Pricing } from 'ens-budget'
 import { devAccount, kmsAccount, kmsSignerFromEnv } from './signer.js'
 
 /**
@@ -114,11 +116,18 @@ type RedeemArgs = readonly [
 
 /** Limits on what a request may contain. The vault enforces its own; these keep junk off the RPC. */
 const MAX_BODY = 20_000
-const MAX_NAMES = 10
+/** The site renews at most 5 names at once. The vault allows 10, but a relayed call never needs more. */
+const MAX_NAMES = 5
 const MAX_PROOF = 16
 const MAX_LABEL = 255
 /** How far ahead a confirmation may be dated. The site signs for 30 minutes. */
 const MAX_DEADLINE_AHEAD = 60 * 60
+/**
+ * How far ahead a confirmation must still be dated. A request that runs out moments after its dry run
+ * would fail onchain at the relayer's cost. The site signs 30 minutes ahead from the device clock, so
+ * this leaves room for a clock that runs slow.
+ */
+const MIN_DEADLINE_AHEAD = 10 * 60
 /** No redemption needs more gas than this; a request that estimates higher is refused. */
 const GAS_CEILING = 3_000_000n
 /** The balance below which the relayer reports itself unavailable: one large redemption's worth. */
@@ -175,9 +184,70 @@ export function parseRedeem(body: unknown, relayer: Address, now: number): Redee
   }
   // Signed for this relayer and nobody else, so a copy of the request is useless to anyone.
   if (message.relayer !== relayer) throw new Refused(400, 'wrong_relayer', 'This confirmation was made for a different relayer. Reload the page and try again.')
-  if (message.deadline <= BigInt(now)) throw new Refused(400, 'expired', 'This confirmation timed out. Try again.')
+  if (message.deadline < BigInt(now + MIN_DEADLINE_AHEAD)) throw new Refused(400, 'expired', 'This confirmation timed out. Try again.')
   if (message.deadline > BigInt(now + MAX_DEADLINE_AHEAD)) throw bad()
   return [message, bytes(signature, 65), proof.map((p) => bytes(p, 32))]
+}
+
+// ---------------------------------------------------------------------------- the whole code
+
+const vaultReadAbi = [
+  {
+    type: 'function',
+    name: 'batches',
+    stateMutability: 'view',
+    inputs: [{ name: 'id', type: 'bytes32' }],
+    outputs: [
+      { name: 'amount', type: 'uint48' },
+      { name: 'count', type: 'uint8' },
+      { name: 'used', type: 'uint200' },
+    ],
+  },
+  { type: 'function', name: 'usdc', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
+] as const
+
+/**
+ * What a redemption leaves unspent, if it leaves more than the site would.
+ *
+ * The site gives each name a share of the code's value and renews it for the longest time that share
+ * buys (ens-budget's `quoteRenewal`). Each share then has less left over than one more second of that
+ * name would cost, so the whole code has less left over than one more second of every name. A request
+ * that leaves more was not made by the site. Returns null when the request spends what it should,
+ * otherwise the amount it would leave.
+ *
+ * Without this, a code holder could renew for one second and take the rest back while the relayer paid
+ * for the transaction.
+ */
+export function unspent(value: bigint, names: { pricing: Pricing; label: string; duration: bigint }[]): bigint | null {
+  let spent = 0n
+  let slack = 0n
+  for (const { pricing, label, duration } of names) {
+    const price = priceOf(pricing, { label, duration })
+    spent += price
+    slack += priceOf(pricing, { label, duration: duration + 1n }) - price
+  }
+  if (spent > value) return null // The vault refuses this itself.
+  return value - spent >= slack ? value - spent : null
+}
+
+/** Refuse a redemption that doesn't spend the code's value the way the site does. */
+async function checkSpend(client: ReturnType<typeof clientFor>, vault: Address, message: RedeemArgs[0]): Promise<void> {
+  const id = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes32' }], [message.buyer, message.root]))
+  const [[value, count], token] = await Promise.all([
+    client.readContract({ address: vault, abi: vaultReadAbi, functionName: 'batches', args: [id] }),
+    client.readContract({ address: vault, abi: vaultReadAbi, functionName: 'usdc' }),
+  ])
+  if (count === 0) throw new Refused(422, 'would_fail', 'This renewal would fail. Check the code and the names, then try again.', 'UnknownCode')
+  const renewers = [...new Set(message.renewals.map((r) => r.renewer))]
+  const pricing = new Map<Address, Pricing>()
+  await Promise.all(renewers.map(async (renewer) => pricing.set(renewer, await getPricing(client, { token, renewer }))))
+  let left: bigint | null
+  try {
+    left = unspent(BigInt(value), message.renewals.map((r) => ({ pricing: pricing.get(r.renewer)!, label: r.label, duration: r.duration })))
+  } catch {
+    throw new Refused(422, 'would_fail', 'This renewal would fail. Check the code and the names, then try again.')
+  }
+  if (left !== null) throw new Refused(422, 'not_whole', 'This renewal doesn’t spend the whole code. Reload the page and try again.')
 }
 
 // ------------------------------------------------------------------------------- per instance
@@ -294,6 +364,7 @@ async function relay(request: Request, cfg: RelayConfig): Promise<{ hash: Hex }>
   for (const [k, v] of recent) if (now - v.at > RECENT_MS) recent.delete(k)
   const sent = recent.get(key)
   if (sent) return { hash: sent.hash }
+  await checkSpend(clientFor(cfg), cfg.vault, args[0])
 
   const send = async (): Promise<{ hash: Hex }> => {
     const again = recent.get(key)
