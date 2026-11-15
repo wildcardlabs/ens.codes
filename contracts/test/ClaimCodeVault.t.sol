@@ -189,14 +189,38 @@ contract CreateTest is VaultBase {
         vm.stopPrank();
     }
 
-    /// The amount is stored in 48 bits; a cap raised past that still can't overflow it.
-    function test_create_amountPastStorageReverts() public {
+    /// The amount is stored in 48 bits, so the cap can't go past it; at the top a code still fits.
+    function test_create_atStorageLimit() public {
+        uint96 top = uint96(type(uint48).max);
         vm.prank(owner);
-        vault.setMaxCodeAmount(type(uint96).max);
+        vault.setMaxCodeAmount(top);
+        assertEq(vault.maxCodeAmount(), top);
         address[] memory codes = codesFrom(CODE_PK, 1);
         vm.prank(buyer);
         vm.expectRevert(ClaimCodeVault.BadAmount.selector);
-        vault.create(codes, uint96(type(uint48).max) + 1);
+        vault.create(codes, top + 1);
+    }
+
+    /// A cap below the smallest code would block every purchase; one above 48 bits can't be used.
+    function test_setMaxCodeAmount_bounds() public {
+        vm.startPrank(owner);
+        vm.expectRevert(ClaimCodeVault.BadAmount.selector);
+        vault.setMaxCodeAmount(0);
+        vm.expectRevert(ClaimCodeVault.BadAmount.selector);
+        vault.setMaxCodeAmount(1e6 - 1);
+        vm.expectRevert(ClaimCodeVault.BadAmount.selector);
+        vault.setMaxCodeAmount(uint96(type(uint48).max) + 1);
+        vault.setMaxCodeAmount(1e6);
+        assertEq(vault.maxCodeAmount(), 1e6);
+        vm.stopPrank();
+    }
+
+    function test_constructor_capBounds() public {
+        address[] memory renewers = new address[](0);
+        vm.expectRevert(ClaimCodeVault.BadAmount.selector);
+        new ClaimCodeVault(IERC20(address(usdc)), renewers, REFERRER, 1e6 - 1, owner, fees);
+        vm.expectRevert(ClaimCodeVault.BadAmount.selector);
+        new ClaimCodeVault(IERC20(address(usdc)), renewers, REFERRER, uint96(type(uint48).max) + 1, owner, fees);
     }
 
     function test_create_feeNeedsAllowance() public {

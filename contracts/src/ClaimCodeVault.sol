@@ -159,8 +159,7 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         usdc = usdc_;
         referrer = referrer_;
         feeRecipient = feeRecipient_;
-        _config.maxCodeAmount = maxCodeAmount_;
-        emit MaxCodeAmountSet(maxCodeAmount_);
+        _setMaxCodeAmount(maxCodeAmount_);
         for (uint256 i; i < renewers.length; ++i) {
             isRenewer[renewers[i]] = true;
             emit RenewerAdded(renewers[i]);
@@ -198,7 +197,7 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         if (n == 0 || n > MAX_BATCH) revert BadBatch();
         Config memory cfg = _config;
         if (cfg.paused) revert IsPaused();
-        if (amount < MIN_CODE_AMOUNT || amount > cfg.maxCodeAmount || amount > type(uint48).max) revert BadAmount();
+        if (amount < MIN_CODE_AMOUNT || amount > cfg.maxCodeAmount) revert BadAmount();
 
         // The purchase is keyed by its buyer, so nobody else can register these codes first.
         bytes32 root = rootOf(codes);
@@ -441,6 +440,12 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     }
 
     function setMaxCodeAmount(uint96 amount) external onlyOwner {
+        _setMaxCodeAmount(amount);
+    }
+
+    /// @dev Between the smallest code and what a code can hold, so the cap never blocks every purchase.
+    function _setMaxCodeAmount(uint96 amount) private {
+        if (amount < MIN_CODE_AMOUNT || amount > type(uint48).max) revert BadAmount();
         _config.maxCodeAmount = amount;
         emit MaxCodeAmountSet(amount);
     }
