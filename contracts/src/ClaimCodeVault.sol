@@ -123,6 +123,7 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     event FeesSwept(address indexed to, uint256 amount);
     event RenewerProposed(address indexed renewer, uint256 activatesAt);
     event RenewerAdded(address indexed renewer);
+    event RenewerCancelled(address indexed renewer);
     event MaxCodeAmountSet(uint96 amount);
     event Paused();
     event Unpaused();
@@ -430,6 +431,13 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         delete pendingRenewers[renewer];
         isRenewer[renewer] = true;
         emit RenewerAdded(renewer);
+    }
+
+    /// @notice Withdraw a proposal before it is activated, so a wrong address never becomes a renewer.
+    function cancelRenewer(address renewer) external onlyOwner {
+        if (pendingRenewers[renewer] == 0) revert RenewerNotReady();
+        delete pendingRenewers[renewer];
+        emit RenewerCancelled(renewer);
     }
 
     function setMaxCodeAmount(uint96 amount) external onlyOwner {

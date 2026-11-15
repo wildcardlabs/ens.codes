@@ -764,10 +764,40 @@ contract AdminTest is VaultBase {
         vault.activateRenewer(r);
     }
 
+    function test_cancelRenewer() public {
+        address r = address(new MockRenewer(IERC20(address(usdc)), 1));
+        vm.prank(owner);
+        vault.proposeRenewer(r);
+        vm.expectEmit(address(vault));
+        emit ClaimCodeVault.RenewerCancelled(r);
+        vm.prank(owner);
+        vault.cancelRenewer(r);
+        assertEq(vault.pendingRenewers(r), 0);
+        // A withdrawn proposal can never be activated, even after the delay.
+        vm.warp(block.timestamp + vault.RENEWER_DELAY());
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.activateRenewer(r);
+        assertFalse(vault.isRenewer(r));
+        // Nothing left to withdraw.
+        vm.prank(owner);
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.cancelRenewer(r);
+    }
+
+    function test_cancelRenewer_activeStays() public {
+        // Withdrawing only touches proposals: an active renewer can't be removed this way.
+        vm.prank(owner);
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.cancelRenewer(address(renewer));
+        assertTrue(vault.isRenewer(address(renewer)));
+    }
+
     function test_onlyOwner() public {
         vm.startPrank(buyer);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
         vault.proposeRenewer(address(1));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
+        vault.cancelRenewer(address(1));
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
         vault.setMaxCodeAmount(1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
