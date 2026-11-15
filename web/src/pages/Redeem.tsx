@@ -6,6 +6,7 @@ import { normalize } from 'viem/ens'
 import type { Go } from '@/App'
 import { CodeTicket } from '@/components/ds/CodeTicket'
 import { ActionButton, Eyebrow, Field, FieldLabel, Hint, PageTitle, Rows, SPLIT_COLORS, SplitBar } from '@/components/ds/primitives'
+import { XMark } from '@/components/ds/Socials'
 import { Bean } from '@/components/ds/stickers'
 import { Button } from '@/components/ui/button'
 import { walletStep, WalletChoices } from '@/components/wallet'
@@ -13,6 +14,7 @@ import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { clean, format, parse, redeemLink } from '@/lib/code'
 import { EXPLORER_URL, MAX_NAMES, publicClient, RENEWERS, USDC } from '@/lib/config'
 import { cleanAmount, fmtBalance, fmtDateSecs, fmtDurationPrecise, fmtUsdcExact, parseUsdc, toInput } from '@/lib/format'
+import { SITE_URL, X_HANDLE } from '@/lib/site'
 import { cn } from '@/lib/utils'
 import { celebrate } from '@/lib/celebrate'
 import { errorMessage } from '@/lib/util'
@@ -538,6 +540,14 @@ function NameRow({
   )
 }
 
+/** A ready-made post about the renewal, as a link to X's compose screen. The person can edit it there. */
+function postUrl(items: Success['items']): string {
+  const names = items.map((i) => `${i.label}.eth`)
+  const what = names.length === 1 ? `${names[0]} for ${fmtDurationPrecise(items[0].duration)}` : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  const text = `Just renewed ${what} with @${X_HANDLE} 🎟️`
+  return `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SITE_URL)}`
+}
+
 function Renewed({ s, go }: { s: Success; go: Go }) {
   useEffect(celebrate, [])
   const one = s.items.length === 1
@@ -555,9 +565,16 @@ function Renewed({ s, go }: { s: Success; go: Go }) {
       <div className="mt-3">
         <Tx hash={s.hash} />
       </div>
-      <Button size="lg" className="mt-6 w-full justify-center" onClick={() => go('buy')}>
-        Buy a claim code
-      </Button>
+      <div className="mt-6 grid gap-2">
+        <Button size="lg" className="w-full justify-center" asChild>
+          <a href={postUrl(s.items)} target="_blank" rel="noreferrer">
+            <XMark className="size-4" /> Share on X
+          </a>
+        </Button>
+        <Button variant="soft" size="lg" className="w-full justify-center" onClick={() => go('buy')}>
+          Buy a claim code
+        </Button>
+      </div>
     </section>
   )
 }

@@ -81,8 +81,13 @@ export function headTags(key: PageKey): string {
     '<meta property="og:image:width" content="1200" />',
     '<meta property="og:image:height" content="630" />',
     '<meta property="og:image:alt" content="A claim code ticket for ENS renewals, beside the words: Renewals you can hand over." />',
+    // X falls back to the og: tags, but not always reliably, so its own are given too.
     '<meta name="twitter:card" content="summary_large_image" />',
     `<meta name="twitter:site" content="@${X_HANDLE}" />`,
+    `<meta name="twitter:title" content="${attr(page.title)}" />`,
+    `<meta name="twitter:description" content="${attr(page.description)}" />`,
+    `<meta name="twitter:image" content="${SITE_URL}/og.png" />`,
+    '<meta name="twitter:image:alt" content="A claim code ticket for ENS renewals, beside the words: Renewals you can hand over." />',
     ...(key === 'home' ? [structuredData()] : []),
   ].join('\n    ')
 }
