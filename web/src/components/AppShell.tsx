@@ -18,8 +18,9 @@ const TABS: { page: Exclude<Page, 'home'>; label: string }[] = [
 /** The app after the landing page: wordmark, three pill tabs, the wallet, then the page. */
 export function AppShell({ page, go, children }: { page: Page; go: Go; children: ReactNode }) {
   const { connected, restoring } = useWallet()
-  // Buying and managing codes belong to a wallet, so they wait for a login. Redeeming needs only a code to start.
-  const gated = !connected && (page === 'buy' || page === 'codes')
+  // Managing codes belongs to a wallet, so it waits for a login. Buying asks for one at its button, and
+  // redeeming needs only a code to start.
+  const gated = !connected && page === 'codes'
   const link = (p: Page) => (e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
     e.preventDefault()

@@ -8,6 +8,7 @@ import { Coin, Seal } from '@/components/ds/stickers'
 import { ExportDialog } from '@/components/ExportCodes'
 import { ShareActions } from '@/components/ShareCode'
 import { useSignExplainer } from '@/components/SignExplainer'
+import { walletStep, WalletChoices } from '@/components/wallet'
 import { Button } from '@/components/ui/button'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { codeFor, keyForSecret, redeemLink } from '@/lib/code'
@@ -38,7 +39,9 @@ const DEFAULT_QTY = '1'
 type Done = { codes: string[]; amount: bigint; first: number }
 
 export default function Buy({ go }: { go: Go }) {
-  const { connected } = useWallet()
+  const { connected, wallets, restoring } = useWallet()
+  /** Several wallets on this device: the Buy button opened the list to choose from. */
+  const [choosing, setChoosing] = useState(false)
   const [amountInput, setAmountInput] = useState(() => fromUrl('amount', DEFAULT_AMOUNT, /^\d{1,4}(\.\d{1,6})?$/))
   const [qtyInput, setQtyInput] = useState(() => fromUrl('qty', DEFAULT_QTY, /^\d{1,3}$/))
   const [maxQty, setMaxQty] = useState(100)
@@ -66,6 +69,7 @@ export default function Buy({ go }: { go: Go }) {
   useEffect(() => {
     setBalance(null)
     if (connected) usdcBalance(connected.address).then(setBalance, () => {})
+    if (connected) setChoosing(false)
   }, [connected, done])
 
   const amount = parseUsdc(amountInput)
@@ -125,6 +129,8 @@ export default function Buy({ go }: { go: Go }) {
     if (amount > max) return { label: `The largest code is ${fmtUsdc(max)}` }
     if (qty < 1) return { label: 'Enter how many codes' }
     if (qty > maxQty) return { label: `Up to ${maxQty} codes per purchase` }
+    // The form works logged out; the wallet is asked for only when there is something to pay.
+    if (!connected) return restoring ? { label: 'Connect wallet' } : walletStep(wallets, setChoosing, setNotice)
     if (short) return { label: 'Not enough USDC in this wallet' }
     return { label: qty > 1 ? `Buy ${qty} codes · ${fmtUsdc(total!)}` : `Buy ${fmtUsdc(amount)} claim code · ${fmtUsdc(total!)}`, action: () => void buy() }
   })()
@@ -251,6 +257,7 @@ export default function Buy({ go }: { go: Go }) {
           {balance !== null && <p className={cn('mt-1 text-right text-[13px]', short ? 'text-red' : 'text-caption')}>USDC balance {fmtBalance(balance)}</p>}
 
           <ActionButton {...button} />
+          {choosing && !connected && <WalletChoices onError={setNotice} className="mt-3" />}
           {notice && (
             <p role="alert" className="mt-3 text-[13px] text-red">
               {notice}
