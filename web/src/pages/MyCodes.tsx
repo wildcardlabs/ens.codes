@@ -7,7 +7,7 @@ import { PageTitle, SplitBar, StatusPill } from '@/components/ds/primitives'
 import { Ticky } from '@/components/ds/stickers'
 import { ExportDialog, type ExportScope } from '@/components/ExportCodes'
 import { DownloadImageItem, hasShareSheet, ShareSheetItem } from '@/components/ShareCode'
-import { type SignReason, useSignExplainer } from '@/components/SignExplainer'
+import { type UnlockReason, usePasskeyPrompt } from '@/components/PasskeyPrompt'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -33,7 +33,7 @@ import { errorMessage } from '@/lib/util'
 import { cn } from '@/lib/utils'
 import { blockTimes, cancelCodes, cancelledBits, purchasesBy, type Redemption, redemptionsOf, usedBits } from '@/lib/vault'
 import { sameAccount, useWallet } from '@/lib/wallet'
-import { isUnlocked, unlockCodes, walletSecret } from '@/lib/walletCodes'
+import { forget, masterOf, walletSecret } from '@/lib/walletCodes'
 
 /**
  * One code this wallet bought. The vault stores purchases, not codes, so a code is known by its
@@ -141,7 +141,7 @@ export default function MyCodes({ go }: { go: Go }) {
   const [codes, setCodes] = useState<Map<string, string> | null>(null)
   const [unlocking, setUnlocking] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const explainer = useSignExplainer()
+  const passkey = usePasskeyPrompt()
   const { copied, copy } = useCopyFeedback()
   const [shareSheet] = useState(hasShareSheet)
 
@@ -194,19 +194,19 @@ export default function MyCodes({ go }: { go: Go }) {
   }, [load])
 
   /**
-   * Re-derive this wallet's codes. Code number n comes from the wallet's signature and n; a purchase's
+   * Re-derive this wallet's codes. Code number n comes from the buyer's passkey and n; a purchase's
    * codes are shown only if they reproduce the root the vault stored for it, which proves they are
    * the codes that were bought.
    */
-  async function showCodes(reason: SignReason = 'view'): Promise<Map<string, string> | null> {
+  async function showCodes(reason: UnlockReason = 'view'): Promise<Map<string, string> | null> {
     if (!connected || !rows) return null
-    // The dialog names what the person pressed, so a signature after Export or Copy link isn't a surprise.
-    if (!isUnlocked(connected.address) && !(await explainer.ask(reason))) return null
+    // The dialog names what the person pressed, so the passkey after Export or Copy link isn't a surprise.
+    // Only the passkey the codes came from can show them, so it doesn't offer to make a new one.
+    const master = masterOf(connected.address) ?? (await passkey.ask(reason, connected.address, false))
+    if (!master) return null
     setUnlocking(true)
     setError(null)
     try {
-      await sameAccount(connected)
-      const master = await unlockCodes(connected.client, connected.address)
       const byPurchase = new Map<string, Row[]>()
       for (const r of rows) byPurchase.set(r.root, [...(byPurchase.get(r.root) ?? []), r])
       const found = new Map<string, string>()
@@ -216,8 +216,13 @@ export default function MyCodes({ go }: { go: Go }) {
         if (merkleRoot(secrets.map((secret) => keyForSecret(secret).address)) !== root) continue
         inOrder.forEach((r, i) => found.set(r.id, codeFor(secrets[i], Number(r.block - VAULT_DEPLOY_BLOCK))))
       }
+      // Nothing matched: most likely another passkey. Forget it so the next try asks again.
+      if (found.size === 0 && rows.length > 0) {
+        forget(connected.address)
+        setError('That passkey didn’t make these codes. Try again with the passkey you bought with. Unused codes can still be cancelled.')
+        return null
+      }
       setCodes(found)
-      if (found.size === 0 && rows.length > 0) setError('These codes can’t be recovered with this wallet. Unused ones can still be cancelled.')
       return found
     } catch (err) {
       setError(errorMessage(err))
@@ -227,17 +232,17 @@ export default function MyCodes({ go }: { go: Go }) {
     }
   }
 
-  /** One row's code, showing the codes first (one signature) if they aren't yet. Null if that was declined or the code can't be recovered. */
-  async function codeOf(r: Row, reason: SignReason): Promise<string | null> {
+  /** One row's code, showing the codes first (the passkey) if they aren't yet. Null if that was declined or the code can't be recovered. */
+  async function codeOf(r: Row, reason: UnlockReason): Promise<string | null> {
     return (codes ?? (await showCodes(reason)))?.get(r.id) ?? null
   }
 
   /**
-   * Copy, and say so: after a menu closes or a signature, nothing else on the page shows it worked.
+   * Copy, and say so: after a menu closes or the passkey, nothing else on the page shows it worked.
    *
-   * After a signature the copy can be refused, for two reasons. A wallet signs in its own window, and
-   * a browser won't let a page that isn't the focused window touch the clipboard: so wait for the
-   * focus to come back, which it does as the wallet's window closes. Some browsers go further and
+   * After the passkey the copy can be refused, for two reasons. The passkey sheet can take the focus,
+   * and a browser won't let a page that isn't the focused window touch the clipboard: so wait for the
+   * focus to come back, which it does as the sheet closes. Some browsers go further and
    * only allow a copy straight after a click; for those the message carries a button, and pressing
    * it is that click.
    */
@@ -255,7 +260,7 @@ export default function MyCodes({ go }: { go: Go }) {
     if (code) await copyAndSay(what === 'copy' ? code : redeemLink(code), what === 'copy' ? 'Code copied' : 'Link copied', hidden, what === 'copy' ? 'Copy code' : 'Copy link')
   }
 
-  /** Exports need the codes themselves, so this shows them first (one signature) if they aren't yet. */
+  /** Exports need the codes themselves, so this shows them first (the passkey) if they aren't yet. */
   async function openExport() {
     if (codes ?? (await showCodes('export'))) setExporting(true)
   }
@@ -347,7 +352,6 @@ export default function MyCodes({ go }: { go: Go }) {
         const code = codes?.get(r.id)
         if (!code) return []
         return {
-          number: r.order,
           code,
           amount: r.amount,
           status: STATUS[r.state].text,
@@ -494,7 +498,7 @@ export default function MyCodes({ go }: { go: Go }) {
                       <Undo2 aria-hidden="true" /> Cancel {cancellable.length} unused
                     </Button>
                   )}
-                  {/* Always offered: exporting shows the codes first (one signature) if they aren't yet. */}
+                  {/* Always offered: exporting shows the codes first (the passkey) if they aren't yet. */}
                   <Button variant="soft" className={codes ? SIDE_BUTTON : undefined} disabled={unlocking} onClick={() => void openExport()}>
                     <Download aria-hidden="true" /> Export
                   </Button>
@@ -597,7 +601,7 @@ export default function MyCodes({ go }: { go: Go }) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="min-w-[250px]">
-                            {/* Offered before the codes are showing too: each one shows them first (one signature). */}
+                            {/* Offered before the codes are showing too: each one shows them first (the passkey). */}
                             {(code || !codes) && (
                               <>
                                 <DropdownMenuItem onSelect={() => void copyRow(r, 'copy')}>
@@ -634,7 +638,7 @@ export default function MyCodes({ go }: { go: Go }) {
 
       {rows && rows.length > 0 && <RenewedNames rows={rows} />}
 
-      {explainer.dialog}
+      {passkey.dialog}
       <ExportDialog
         open={exporting}
         onOpenChange={setExporting}

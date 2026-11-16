@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { AppShell } from '@/components/AppShell'
 import { Toaster } from '@/components/ui/sonner'
+import { WalletConnectDialog } from '@/components/WalletConnectDialog'
 import { codeFromHash } from '@/lib/code'
 import { VAULT } from '@/lib/config'
 import { PAGES, urlOf } from '@/lib/site'
@@ -106,6 +107,7 @@ export default function App() {
           )}
         </AppShell>
       )}
+      <WalletConnectDialog />
       <Toaster position="bottom-center" />
     </>
   )

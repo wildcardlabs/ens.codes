@@ -2,18 +2,34 @@ import { ChevronDown, Loader2, Wallet as WalletIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { WALLETCONNECT } from '@/lib/config'
 import { useEnsProfile } from '@/lib/ensProfile'
 import { truncAddress } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { connect, type Discovered, disconnect, useWallet } from '@/lib/wallet'
+import { connect, connectWalletConnect, type Discovered, disconnect, useWallet } from '@/lib/wallet'
+import { isAndroid, isMobile, warmUp } from '@/lib/walletconnect'
 import { Token } from './ds/primitives'
+import { WalletConnectIcon } from './ds/WalletConnectIcon'
 
 const connectError = (err: { shortMessage?: string; message?: string; code?: number }) =>
   err.code === 4001 ? 'You cancelled the request in your wallet.' : (err.shortMessage ?? err.message ?? 'Could not connect.')
 
-/** The browser wallets found on this device, as a list of rows. */
+/**
+ * WalletConnect's row. On a computer it goes by its own name, which people with a phone wallet, Safe
+ * or Ledger Live look for. On a phone it means "a wallet app on this phone".
+ */
+const WALLETCONNECT_LABEL = () => (isMobile() ? 'Wallet app' : 'WalletConnect')
+const NO_WALLET = WALLETCONNECT
+  ? 'No browser wallet found. Connect a phone wallet with WalletConnect, or install one such as MetaMask or Rabby.'
+  : 'No browser wallet found. Install one, such as MetaMask or Rabby, then reload.'
+
+/** The browser wallets found on this device, then WalletConnect, as a list of rows. */
 export function WalletChoices({ onError, className }: { onError: (message: string) => void; className?: string }) {
   const { wallets, connecting } = useWallet()
+  // Android opens the wallet list from the tap itself, so have the client ready before it.
+  useEffect(() => {
+    if (WALLETCONNECT && isAndroid()) warmUp()
+  }, [])
   return (
     <div className={cn('grid gap-2', className)}>
       {wallets.map((w) => (
@@ -29,17 +45,33 @@ export function WalletChoices({ onError, className }: { onError: (message: strin
           {connecting === w.info.uuid && <Loader2 className="size-4 animate-spin text-caption" aria-hidden="true" />}
         </button>
       ))}
-      {wallets.length === 0 && <p className="text-[14px] text-caption">No browser wallet found. Install one, such as MetaMask or Rabby, then reload.</p>}
+      {WALLETCONNECT && (
+        <button
+          type="button"
+          disabled={!!connecting}
+          onClick={() => void connectWalletConnect()}
+          className="fragment flex h-12 items-center gap-3 px-3.5 text-left text-[15px] font-medium text-foreground transition-colors duration-100 hover:bg-card disabled:opacity-60"
+        >
+          <WalletConnectIcon className="size-6" />
+          <span className="flex-1">{WALLETCONNECT_LABEL()}</span>
+        </button>
+      )}
+      {wallets.length === 0 && !WALLETCONNECT && <p className="text-[14px] text-caption">{NO_WALLET}</p>}
     </div>
   )
 }
 
-/** The wallet step of a form's main button: connect (one wallet), choose (several), or install. */
+/**
+ * The wallet step of a form's main button: straight to the only way to connect, or the list to choose
+ * from. With no browser wallet and no WalletConnect, there is nothing to connect.
+ */
 export function walletStep(wallets: Discovered[], setChoosing: (v: boolean) => void, onError: (m: string) => void): { label: string; action?: () => void } {
-  if (!wallets.length) return { label: 'Install a browser wallet' }
+  const ways = wallets.length + (WALLETCONNECT ? 1 : 0)
+  if (!ways) return { label: 'Install a browser wallet' }
   return {
     label: 'Connect wallet',
-    action: () => (wallets.length === 1 ? void connect(wallets[0]).catch((e) => onError(connectError(e))) : setChoosing(true)),
+    action: () =>
+      ways > 1 ? setChoosing(true) : wallets.length ? void connect(wallets[0]).catch((e) => onError(connectError(e))) : void connectWalletConnect(),
   }
 }
 
@@ -61,6 +93,9 @@ export function WalletMenu() {
   const { connected, wallets, connecting, restoring } = useWallet()
   const profile = useEnsProfile(connected?.address)
   const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!connected && WALLETCONNECT && isAndroid()) warmUp()
+  }, [connected])
 
   if (connected)
     return (
@@ -92,7 +127,8 @@ export function WalletMenu() {
       Connect wallet
     </>
   )
-  if (wallets.length === 1) return <Button onClick={() => void connect(wallets[0]).catch((e) => setError(connectError(e)))} title={error ?? undefined}>{label}</Button>
+  if (wallets.length === 1 && !WALLETCONNECT) return <Button onClick={() => void connect(wallets[0]).catch((e) => setError(connectError(e)))} title={error ?? undefined}>{label}</Button>
+  if (wallets.length === 0 && WALLETCONNECT) return <Button onClick={() => void connectWalletConnect()}>{label}</Button>
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -100,7 +136,7 @@ export function WalletMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="min-w-[240px]">
         {wallets.length === 0 ? (
-          <div className="px-2 py-1.5 text-[13px] text-caption">No browser wallet found. Install one, such as MetaMask or Rabby, then reload.</div>
+          <div className="px-2 py-1.5 text-[13px] text-caption">{NO_WALLET}</div>
         ) : (
           wallets.map((w) => (
             <DropdownMenuItem key={w.info.uuid} onSelect={() => void connect(w).catch((e) => setError(connectError(e)))} className="gap-2.5">
@@ -108,6 +144,12 @@ export function WalletMenu() {
               {w.info.name}
             </DropdownMenuItem>
           ))
+        )}
+        {WALLETCONNECT && (
+          <DropdownMenuItem onSelect={() => void connectWalletConnect()} className="gap-2.5">
+            <WalletConnectIcon className="size-5" />
+            {WALLETCONNECT_LABEL()}
+          </DropdownMenuItem>
         )}
         {error && <div className="px-2 py-1.5 text-[12px] text-red">{error}</div>}
       </DropdownMenuContent>

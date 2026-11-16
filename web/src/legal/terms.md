@@ -1,6 +1,6 @@
 # Terms of Use
 
-Last updated: November 14, 2026
+Last updated: November 16, 2026
 
 ## 1. Agreement
 
@@ -26,7 +26,7 @@ You may use the Service only if you are at least 18 years old, have the legal ca
 
 To buy Codes you need a compatible third-party wallet. You alone are responsible for your wallet, its keys, and everything signed or sent with it.
 
-Codes are generated in your browser from a signature made by the buying wallet. We do not store Codes and cannot recover them. Viewing or cancelling your Codes later requires the same wallet.
+Codes are generated in your browser from a passkey you create for the Service. We do not store Codes or your passkey and cannot recover them. Viewing your Codes later requires the same passkey and the buying wallet; cancelling them requires the buying wallet.
 
 A Code works for whoever holds it. Anyone who has a Code can redeem it. Keep it secure and share it only with the person you intend to have it. We are not responsible for Codes that are lost, stolen, sent to the wrong person or intercepted.
 

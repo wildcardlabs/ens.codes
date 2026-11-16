@@ -60,8 +60,7 @@ async function loadEnsMark(color: string): Promise<HTMLImageElement | null> {
   }
 }
 
-/** `number`, when given, is printed small in the corner: the code's number in My codes. */
-async function draw(code: string, amount: bigint, number?: number): Promise<HTMLCanvasElement> {
+async function draw(code: string, amount: bigint): Promise<HTMLCanvasElement> {
   // Canvas text uses the page's fonts only once they have loaded at these weights.
   await Promise.all([`600 44px ${DISPLAY}`, `500 150px ${DISPLAY}`, `600 30px ${SANS}`, `400 28px ${SANS}`, `500 40px ${MONO}`].map((f) => document.fonts.load(f)))
   const c = theme()
@@ -143,10 +142,6 @@ async function draw(code: string, amount: bigint, number?: number): Promise<HTML
   ctx.fillStyle = c.caption
   ctx.font = `400 28px ${SANS}`
   ctx.fillText(`Redeem at ${REDEEM_AT}`, (left + right) / 2, 734)
-  if (number !== undefined) {
-    ctx.textAlign = 'right'
-    ctx.fillText(`No. ${number}`, right, 734)
-  }
   ctx.textAlign = 'start'
   return canvas
 }
@@ -166,8 +161,8 @@ export async function ticketPng(code: string, amount: bigint): Promise<Blob> {
   return new Blob([encode(await draw(code, amount), 'image/png')], { type: 'image/png' })
 }
 
-/** The same picture as raw bytes, with the code's number on it: for a ZIP of many. */
-export const ticketPngBytes = async (code: string, amount: bigint, number: number) => encode(await draw(code, amount, number), 'image/png')
+/** The same picture as raw bytes: for a ZIP of many. */
+export const ticketPngBytes = async (code: string, amount: bigint) => encode(await draw(code, amount), 'image/png')
 
 /** A file name that tells codes apart without spelling the whole code out. */
 export const ticketName = (code: string) => `ens-code-${code.slice(0, 5)}.png`

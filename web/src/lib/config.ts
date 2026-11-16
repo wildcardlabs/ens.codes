@@ -52,6 +52,8 @@ export const LOG_RANGE = BigInt(env.VITE_LOG_RANGE || 10_000)
 
 /** Local testing only: announces an EIP-6963 wallet backed by anvil's unlocked accounts. */
 export const DEV_WALLET = env.VITE_DEV_WALLET === '1' && CHAIN_ID === 31337
+/** Which of anvil's accounts the test wallet uses (0-9). Another number gives a wallet with no history. */
+export const DEV_ACCOUNT = Number(env.VITE_DEV_ACCOUNT || 0)
 
 /** How many names one code can be split across on the redeem page. The vault itself allows 10. */
 export const MAX_NAMES = 5
@@ -71,3 +73,12 @@ export const VAULT_DOMAIN = {
 
 /** The site's public address, as printed on pages and on downloaded tickets. */
 export const SITE_HOST = 'ens.codes'
+
+/**
+ * WalletConnect, for wallets on another device (a phone wallet with the site open on a computer) or
+ * in another app (a phone wallet with the site open in the phone's browser). The project id is
+ * public: it ships in every page. Its dashboard limits it to this site's domains.
+ * Not offered on the local fork, which phone wallets can't reach.
+ */
+export const WALLETCONNECT_PROJECT_ID = 'b061167ac236cfb75407f60bf4f2f927'
+export const WALLETCONNECT = CHAIN_ID === 1 || CHAIN_ID === 11155111
