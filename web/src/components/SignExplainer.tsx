@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { TickList } from './ds/primitives'
 import { Key } from './ds/stickers'
+import { SITE_HOST } from '@/lib/config'
 
 /**
  * What the person was doing when the signature came up. Someone who pressed Export or Copy link
@@ -64,7 +65,7 @@ export function useSignExplainer() {
           <TickList hue="green" items={['Free, and moves no money', 'A message, not a transaction', 'Keeps your codes private']} className="gap-2.5 [&_li]:text-[15px]" />
         </div>
         <p className="mt-4 text-[13px] leading-5 text-caption">
-          Your wallet should show <span className="font-medium text-foreground">{window.location.host}</span>. If it shows another site, don't sign.
+          Your wallet should show <span className="font-medium text-foreground">{typeof window === 'undefined' ? SITE_HOST : window.location.host}</span>. If it shows another site, don't sign.
         </p>
         <div className="mt-5 grid grid-cols-2 gap-2">
           <Button variant="soft" size="md" onClick={() => close(false)}>

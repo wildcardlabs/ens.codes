@@ -67,6 +67,8 @@ export function useWallet() {
       return () => listeners.delete(fn)
     },
     () => state,
+    // Drawn at build time there is no browser, so no wallet: the page as a logged-out visitor sees it.
+    () => state,
   )
 }
 

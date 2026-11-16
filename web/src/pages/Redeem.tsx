@@ -113,7 +113,7 @@ export default function Redeem({ go, initialCode }: { go: Go; initialCode?: stri
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && parsed.ok && void apply()}
                   />
-                  {!codeInput && 'clipboard' in navigator && 'readText' in navigator.clipboard && (
+                  {!codeInput && typeof navigator !== 'undefined' && 'clipboard' in navigator && 'readText' in navigator.clipboard && (
                     <Button
                       variant="soft"
                       size="sm"

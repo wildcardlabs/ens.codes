@@ -28,7 +28,8 @@ const MIN_AMOUNT = 1_000_000n
 
 /** A prefilled choice from the landing page: /buy?amount=25 or /buy?qty=100. */
 function fromUrl(key: string, fallback: string, ok: RegExp): string {
-  const v = new URLSearchParams(location.search).get(key)
+  // Drawn at build time there is no address to read.
+  const v = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get(key)
   return v && ok.test(v) ? v : fallback
 }
 
@@ -130,7 +131,8 @@ export default function Buy({ go }: { go: Go }) {
     if (qty < 1) return { label: 'Enter how many codes' }
     if (qty > maxQty) return { label: `Up to ${maxQty} codes per purchase` }
     // The form works logged out; the wallet is asked for only when there is something to pay.
-    if (!connected) return restoring ? { label: 'Connect wallet' } : walletStep(wallets, setChoosing, setNotice)
+    // Drawn at build time no wallets have been looked for yet, so it can't say none were found.
+    if (!connected) return restoring || typeof window === 'undefined' ? { label: 'Connect wallet' } : walletStep(wallets, setChoosing, setNotice)
     if (short) return { label: 'Not enough USDC in this wallet' }
     return { label: qty > 1 ? `Buy ${qty} codes · ${fmtUsdc(total!)}` : `Buy ${fmtUsdc(amount)} claim code · ${fmtUsdc(total!)}`, action: () => void buy() }
   })()

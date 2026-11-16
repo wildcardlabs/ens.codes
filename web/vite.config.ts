@@ -47,8 +47,9 @@ function devApi(env: Record<string, string>): Plugin {
  * writes one file for every other page (buy.html, redeem.html and so on), the same app with that
  * page's tags, which the host serves at /buy, /redeem and so on.
  *
- * A build also draws the landing page once and puts the result into index.html, so its words are in
- * the file for anything that doesn't run the app. The other pages start empty, as before.
+ * A build also draws the landing, buy and redeem pages once, as a logged-out visitor first sees them,
+ * and puts the result into their files, so their words are there for anything that doesn't run the
+ * app. The other pages belong to a wallet or are drawn from text, and start empty.
  */
 function pageHeads(): Plugin {
   const MARK = '<!--page-->'
@@ -70,16 +71,18 @@ function pageHeads(): Plugin {
       const shell = fs.readFileSync(index, 'utf8')
       const block = /<!--page-->[\s\S]*?<!--\/page-->/
       if (!block.test(shell) || !shell.includes(ROOT)) throw new Error('index.html has lost its <!--page--> marker or its empty #root.')
-      for (const key of (Object.keys(PAGES) as PageKey[]).filter((k) => k !== 'home'))
-        fs.writeFileSync(path.join(out, `${key}.html`), shell.replace(block, () => headTags(key)))
-      const page = await landingPage(root, mode)
-      fs.writeFileSync(index, shell.replace(block, () => headTags('home')).replace(ROOT, () => `<div id="root">${page}</div>`))
+      const drawn = await drawPages(root, mode)
+      for (const key of Object.keys(PAGES) as PageKey[]) {
+        const html = shell.replace(block, () => headTags(key))
+        const body = drawn[key]
+        fs.writeFileSync(key === 'home' ? index : path.join(out, `${key}.html`), body ? html.replace(ROOT, () => `<div id="root">${body}</div>`) : html)
+      }
     },
   }
 }
 
-/** Draw the landing page to HTML, by loading the app's own code the way the dev server would. */
-async function landingPage(root: string, mode: string): Promise<string> {
+/** Draw the prerendered pages to HTML, by loading the app's own code the way the dev server would. */
+async function drawPages(root: string, mode: string): Promise<Partial<Record<PageKey, string>>> {
   const server = await createServer({
     configFile: false,
     root,
@@ -91,11 +94,15 @@ async function landingPage(root: string, mode: string): Promise<string> {
     logLevel: 'error',
   })
   try {
-    const { render } = (await server.ssrLoadModule('/src/prerender.tsx')) as { render: () => string }
-    const html = render()
-    // A build that would ship the page without its words should stop here, not deploy.
-    if (!html.includes('Renewals you can hand over.')) throw new Error('The landing page rendered without its headline.')
-    return html
+    const { render, PRERENDERED } = (await server.ssrLoadModule('/src/prerender.tsx')) as typeof import('./src/prerender')
+    const drawn: Partial<Record<PageKey, string>> = {}
+    for (const [key, words] of Object.entries(PRERENDERED) as [keyof typeof PRERENDERED, string][]) {
+      const html = render(key)
+      // A build that would ship a page without its words should stop here, not deploy.
+      if (!html.includes(words)) throw new Error(`The ${key} page rendered without "${words}".`)
+      drawn[key] = html
+    }
+    return drawn
   } finally {
     await server.close()
   }
