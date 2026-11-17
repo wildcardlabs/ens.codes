@@ -13,7 +13,12 @@ import { chain, publicClient, SITE_HOST, WALLETCONNECT_PROJECT_ID } from './conf
 
 const CAIP = `eip155:${chain.id}`
 /** What the wallet itself is asked to do. Everything else is answered here or by our own node. */
-const WALLET_METHODS = ['eth_sendTransaction', 'eth_signTypedData_v4']
+const WALLET_METHODS = ['eth_sendTransaction', 'eth_signTypedData_v4', 'wallet_sendCalls']
+/**
+ * Asked of the wallet too, but answered without the person: what it can do (send calls as one
+ * batch, say) and how a batch is going. The wallet app is never brought forward for these.
+ */
+const QUIET_METHODS = ['wallet_getCapabilities', 'wallet_getCallsStatus']
 
 let loading: Promise<UniversalProvider> | null = null
 function client(): Promise<UniversalProvider> {
@@ -121,8 +126,12 @@ function sessionOf(p: UniversalProvider): Session | null {
     async request({ method, params }: { method: string; params?: unknown }) {
       if (method === 'eth_chainId') return numberToHex(chain.id)
       if (method === 'eth_accounts' || method === 'eth_requestAccounts') return accountsOf(p)
-      if (method.startsWith('wallet_')) throw Object.assign(new Error(`${method} isn't available over WalletConnect.`), { code: 4200 })
+      if (method === 'wallet_getCapabilities') return { [numberToHex(chain.id)]: await capabilities(p, session, address) }
+      if (method === 'wallet_getCallsStatus' && approved(session, method))
+        return p.client.request({ topic: session.topic, chainId: CAIP, request: { method, params: params as unknown[] } })
+      if (method.startsWith('wallet_') && !WALLET_METHODS.includes(method)) throw Object.assign(new Error(`${method} isn't available over WalletConnect.`), { code: 4200 })
       if (WALLET_METHODS.includes(method)) {
+        if (method === 'wallet_sendCalls' && !approved(session, method)) throw Object.assign(new Error(`${method} isn't available in this wallet.`), { code: 4200 })
         const pending = p.client.request({ topic: session.topic, chainId: CAIP, request: { method, params: params as unknown[] } })
         openWallet(p, pending)
         return pending
@@ -134,6 +143,67 @@ function sessionOf(p: UniversalProvider): Session | null {
   } as unknown as EIP1193Provider
   const peer = session.peer.metadata
   return { provider, address, name: peer.name || 'WalletConnect', icon: peer.icons?.[0] }
+}
+
+const approved = (session: Struct, method: string) => !!session.namespaces.eip155?.methods.includes(method)
+
+/** Wallet answers to `wallet_getCapabilities`, by session. */
+const asked = new Map<string, Promise<Caps | null>>()
+type Caps = Record<string, unknown>
+
+/**
+ * What the wallet can do on this chain for this account (EIP-5792), without bringing it forward.
+ * Wallets often list it with the session; otherwise the wallet is asked once per session, and only
+ * briefly waited for: on a phone it may be asleep in the background and not answer until opened.
+ */
+async function capabilities(p: UniversalProvider, session: Struct, address: Address): Promise<Caps> {
+  if (!approved(session, 'wallet_sendCalls')) return {}
+  const listed = advertised(session, address)
+  if (Object.keys(listed).length) return listed
+  if (!approved(session, 'wallet_getCapabilities')) return {}
+  const answer = await Promise.race([ask(p, session, address), new Promise<null>((r) => setTimeout(() => r(null), 2000))])
+  return answer ?? {}
+}
+
+/** Ask the wallet for its capabilities on this chain, once per session. */
+function ask(p: UniversalProvider, session: Struct, address: Address): Promise<Caps | null> {
+  let answer = asked.get(session.topic)
+  if (!answer) {
+    const chainHex = numberToHex(chain.id)
+    answer = p.client
+      .request<Record<string, Caps>>({ topic: session.topic, chainId: CAIP, request: { method: 'wallet_getCapabilities', params: [address, [chainHex]] } })
+      .then((all) => {
+        const caps: Caps = {}
+        for (const [id, c] of Object.entries(all ?? {})) if (Number(id) === 0 || Number(id) === chain.id) Object.assign(caps, c)
+        return caps
+      })
+      .catch(() => null)
+    asked.set(session.topic, answer)
+  }
+  return answer
+}
+
+/**
+ * Capabilities the wallet listed with the session: in its session properties, or in its properties
+ * for this chain and for this account on it. Values may come as JSON text.
+ */
+function advertised(session: Struct, address: Address): Caps {
+  const KNOWN = ['atomic', 'atomicBatch', 'paymasterService', 'flow-control', 'auxiliaryFunds']
+  const pick = (from: unknown): Caps => {
+    const out: Caps = {}
+    for (const [k, v] of Object.entries((from ?? {}) as Record<string, unknown>)) {
+      if (!KNOWN.includes(k)) continue
+      try {
+        out[k] = typeof v === 'string' ? JSON.parse(v) : v
+      } catch {
+        // Not JSON: not a capability we can read.
+      }
+    }
+    return out
+  }
+  const scoped = (session.scopedProperties as Record<string, Record<string, unknown>> | undefined)?.[CAIP]
+  const account = Object.entries(scoped ?? {}).find(([k]) => k.toLowerCase() === `${CAIP}:${address}`.toLowerCase())?.[1]
+  return { ...pick(session.sessionProperties), ...pick(scoped), ...pick(account) }
 }
 
 /**
@@ -208,7 +278,7 @@ export async function pair(onUri: (uri: string) => void): Promise<Session | null
     // would clear the client's pairings in the background, racing the pairing about to be made.
     await p.connect({
       optionalNamespaces: {
-        eip155: { chains: [CAIP], methods: WALLET_METHODS, events: ['accountsChanged', 'chainChanged'], rpcMap: { [CAIP]: chain.rpcUrls.default.http[0] } },
+        eip155: { chains: [CAIP], methods: [...WALLET_METHODS, ...QUIET_METHODS], events: ['accountsChanged', 'chainChanged'], rpcMap: { [CAIP]: chain.rpcUrls.default.http[0] } },
       },
     })
   } finally {
@@ -224,6 +294,8 @@ export async function pair(onUri: (uri: string) => void): Promise<Session | null
   }
   if (p.session) use(p, p.session)
   const s = sessionOf(p)
+  // The wallet is in front right now on a phone, so this is the moment to ask what it can do.
+  if (s && p.session && approved(p.session, 'wallet_getCapabilities') && !Object.keys(advertised(p.session, s.address)).length) void ask(p, p.session, s.address)
   if (!s) {
     if (p.session) await end(p, p.session.topic)
     throw new Error(`Your wallet didn’t share an account on ${chain.name}. Add that network in the wallet and try again.`)

@@ -1,8 +1,8 @@
-import { type Address, domainSeparator, encodeAbiParameters, erc20Abi, getAddress, type Hex, isAddress, keccak256, parseEventLogs, parseSignature, type TransactionReceipt, type WalletClient } from 'viem'
+import { type Address, type BaseError, domainSeparator, encodeAbiParameters, erc20Abi, getAddress, type Hex, isAddress, keccak256, numberToHex, parseEventLogs, parseSignature, type TransactionReceipt, type WalletClient } from 'viem'
 import type { PrivateKeyAccount } from 'viem/accounts'
 import { vaultAbi } from './abi'
 import { format, keyForSecret, parse } from './code'
-import { LOG_RANGE, publicClient, USDC, VAULT, VAULT_DEPLOY_BLOCK, VAULT_DOMAIN } from './config'
+import { chain, LOG_RANGE, publicClient, USDC, VAULT, VAULT_DEPLOY_BLOCK, VAULT_DOMAIN } from './config'
 import { merkleProof, merkleRoot } from './merkle'
 import { ensureChainFor } from './wallet'
 
@@ -78,6 +78,23 @@ export async function createCodes(
 
   if (allowance >= total) return create(purchase)
 
+  // A wallet that can send calls as one batch approves USDC and buys in a single confirmation.
+  if (await batches(wallet, buyer)) {
+    await ready(purchase)
+    onStep(`${confirmText.slice(0, -1)} (it includes the USDC approval)…`)
+    const calls = [
+      { to: USDC, abi: erc20Abi, functionName: 'approve', args: [VAULT, total] },
+      { to: VAULT, abi: vaultAbi, functionName: 'create', args: [codes, amount] },
+    ] as const
+    const from = await publicClient.getBlockNumber({ cacheTime: 0 })
+    const sent = await wallet.sendCalls({ account: buyer, chain: wallet.chain, calls, forceAtomic: true }).catch((err: unknown) => {
+      // The wallet said it could batch but refused this one: buy the usual way instead.
+      if (unsupported(err)) return null
+      throw err
+    })
+    if (sent) return done(await confirmed(await batchHash(wallet, sent, buyer, codes, from), onStep))
+  }
+
   // Wallets with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
   // ERC-1271, which many don't support. Use a plain approve for them.
   const hasCode = !!(await publicClient.getCode({ address: buyer }))
@@ -125,6 +142,73 @@ export async function createCodes(
     onStep,
   )
   return create({ kind: 'purchase', after: 'approve' })
+}
+
+/**
+ * Whether the wallet can send several calls as one all-or-nothing batch (EIP-5792). A wallet that
+ * could only after upgrading the account (`ready`, as MetaMask says for a plain account) is left
+ * alone: the upgrade would be a prompt of its own, about something other than this purchase.
+ */
+async function batches(wallet: WalletClient, buyer: Address): Promise<boolean> {
+  try {
+    const ask = wallet.request({ method: 'wallet_getCapabilities', params: [buyer, [numberToHex(chain.id)]] }) as Promise<Record<string, Caps>>
+    const all = await Promise.race([ask, new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), 3000))])
+    // Capabilities are listed per chain, and under 0x0 for every chain.
+    const caps: Caps = {}
+    for (const [id, c] of Object.entries(all ?? {})) if (Number(id) === 0 || Number(id) === chain.id) Object.assign(caps, c)
+    return caps.atomic?.status === 'supported' || caps.atomicBatch?.supported === true
+  } catch {
+    return false
+  }
+}
+type Caps = { atomic?: { status?: string }; atomicBatch?: { supported?: boolean } }
+
+/** The wallet doesn't do this kind of request (as opposed to the person saying no). */
+function unsupported(err: unknown): boolean {
+  const codes = new Set([4200, -32601, 5700, 5710, 5720, 5740, 5750])
+  return !!(err as BaseError).walk?.((e) => codes.has((e as { code?: number }).code ?? 0))
+}
+
+/**
+ * The transaction a batch ended up in. Some wallets name it right away; otherwise the wallet is
+ * asked for the batch's status while the chain is watched for the purchase itself, whichever answers
+ * first. A wallet on a phone can be asleep in the background by then, and answer late or not at all.
+ */
+async function batchHash(wallet: WalletClient, sent: { id: string; capabilities?: unknown }, buyer: Address, codes: Address[], from: bigint): Promise<Hex> {
+  const named = (sent.capabilities as { caip345?: { transactionHashes?: Hex[] } } | undefined)?.caip345?.transactionHashes
+  if (named?.length) return named[named.length - 1]
+  let over = false
+  const never = new Promise<never>(() => {})
+  const fromWallet = (async (): Promise<Hex> => {
+    while (!over) {
+      // A wallet that can't say leaves it to the chain.
+      const s = await wallet.getCallsStatus({ id: sent.id }).catch(() => null)
+      if (!s) return never
+      if (s.status === 'failure') throw new Error('The purchase failed in your wallet.')
+      const hash = s.status === 'success' ? s.receipts?.[s.receipts.length - 1]?.transactionHash : undefined
+      if (hash) return hash
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    return never
+  })()
+  const fromChain = (async (): Promise<Hex> => {
+    const id = batchId(buyer, merkleRoot(codes))
+    const until = Date.now() + 10 * 60_000
+    while (!over && Date.now() < until) {
+      if (await readBatch(id).catch(() => null)) {
+        const [log] = await publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Created', args: { id, buyer }, fromBlock: from })
+        if (log?.transactionHash) return log.transactionHash
+      }
+      await new Promise((r) => setTimeout(r, 3000))
+    }
+    if (over) return never
+    throw new Error('The purchase hasn’t shown up yet. Check My codes before trying again.')
+  })()
+  try {
+    return await Promise.race([fromWallet, fromChain])
+  } finally {
+    over = true
+  }
 }
 
 /**
