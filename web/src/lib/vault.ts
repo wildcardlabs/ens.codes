@@ -105,13 +105,14 @@ export async function createCodes(
     const { v, r, s, yParity } = parseSignature(sig)
     const vv = Number(v ?? BigInt(yParity + 27))
     const call = { ...base, functionName: 'createWithPermit', args: [codes, amount, deadline, vv, r, s] } as const
-    // Check the permit would work before asking for a transaction.
-    const works = await publicClient.simulateContract(call).then(
+    // Check the permit would work before asking for a transaction. The check runs while the next
+    // step waits for the person, so it adds no wait of its own; it is nearly always done by the tap.
+    const works = publicClient.simulateContract(call).then(
       () => true,
       () => false,
     )
-    if (works) {
-      await ready({ kind: 'purchase', after: 'permit' })
+    await ready({ kind: 'purchase', after: 'permit' })
+    if (await works) {
       onStep(confirmText)
       return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep))
     }
