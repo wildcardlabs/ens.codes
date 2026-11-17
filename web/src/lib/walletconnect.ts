@@ -122,7 +122,7 @@ function openWallet(p: UniversalProvider, pending: Promise<unknown>) {
   if (!isMobile() || !p.session) return
   const native = p.session.peer.metadata.redirect?.native?.trim()
   if (!native || /^(https?|javascript|data):/i.test(native)) return
-  const link = `${native.endsWith('/') ? native.slice(0, -1) : native}/wc?sessionTopic=${p.session.topic}`
+  const link = requestLink(native, p.session.topic)
   if (navigator.userActivation?.isActive !== false) {
     window.location.href = link
     return
@@ -137,6 +137,21 @@ function openWallet(p: UniversalProvider, pending: Promise<unknown>) {
   })
   const done = () => void toast.dismiss(id)
   pending.then(done, done)
+}
+
+/**
+ * Android apps of wallets whose app link Android may not hand straight to them. On some phones
+ * opening `metamask://…` from Chrome brings up "Choose activity: Chrome or MetaMask". An `intent:`
+ * link that names the app is opened by that app alone, so no chooser can come up.
+ */
+const ANDROID_APPS: Record<string, string> = { metamask: 'io.metamask' }
+
+/** WalletConnect's request link for a wallet, `somewallet://wc?sessionTopic=…`, as Android should open it. */
+function requestLink(native: string, topic: string): string {
+  const link = `${native.endsWith('/') ? native.slice(0, -1) : native}/wc?sessionTopic=${topic}`
+  const scheme = link.slice(0, link.indexOf(':')).toLowerCase()
+  const app = isAndroid() ? ANDROID_APPS[scheme] : undefined
+  return app ? `intent:${link.slice(scheme.length + 1)}#Intent;scheme=${scheme};package=${app};end` : link
 }
 
 export type Session = { provider: EIP1193Provider; address: Address; name: string; icon?: string }
