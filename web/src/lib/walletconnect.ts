@@ -47,18 +47,38 @@ function client(): Promise<UniversalProvider> {
  * told. The client only checks for a stalled connection when it runs on a server, so in a browser
  * the wallet's answer would wait until the dead connection is noticed. A fresh connection picks up
  * whatever the wallet sent in the meantime.
+ *
+ * On a phone the connection is also closed as the page goes into the background. A paused page's
+ * connection still looks open to the relay, which then spends about 6 seconds trying to deliver
+ * the wallet's answer (the approval, a signature) before keeping it for later, and the wallet waits
+ * on that before it sends the person back. With the page plainly away, the relay keeps the answer
+ * at once. Whatever the page had just sent still goes out: closing sends what is buffered first.
  */
 function reconnectOnReturn(p: UniversalProvider) {
+  const relayer = p.client.core.relayer
   let hiddenAt = 0
+  let closed = false
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      hiddenAt = Date.now()
+      const at = (hiddenAt = Date.now())
+      if (isMobile())
+        setTimeout(() => {
+          if (hiddenAt !== at || document.visibilityState !== 'hidden') return
+          closed = true
+          relayer.transportClose().catch(() => {})
+        }, 250)
+      return
+    }
+    const away = hiddenAt ? Date.now() - hiddenAt : 0
+    hiddenAt = 0
+    if (closed) {
+      closed = false
+      relayer.transportOpen().catch(() => relayer.restartTransport().catch(() => {}))
       return
     }
     // A glance away (a notification, a quick app switch) doesn't need a new connection.
-    if (!hiddenAt || Date.now() - hiddenAt < 2000) return
-    hiddenAt = 0
-    p.client.core.relayer.restartTransport().catch(() => {})
+    if (away < 2000) return
+    relayer.restartTransport().catch(() => {})
   })
 }
 

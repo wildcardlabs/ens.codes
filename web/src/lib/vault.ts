@@ -184,7 +184,9 @@ async function batchHash(wallet: WalletClient, sent: { id: string; capabilities?
       // A wallet that can't say leaves it to the chain.
       const s = await wallet.getCallsStatus({ id: sent.id }).catch(() => null)
       if (!s) return never
-      if (s.status === 'failure') throw new Error('The purchase failed in your wallet.')
+      // 400: the batch never went onchain, most often because the person said no in the wallet.
+      if (s.status === 'failure')
+        throw new Error(s.statusCode === 400 ? 'The purchase was cancelled in your wallet. Nothing was paid.' : 'The purchase failed onchain. No USDC was spent.')
       const hash = s.status === 'success' ? s.receipts?.[s.receipts.length - 1]?.transactionHash : undefined
       if (hash) return hash
       await new Promise((r) => setTimeout(r, 2000))
