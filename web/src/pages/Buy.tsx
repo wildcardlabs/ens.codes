@@ -22,6 +22,7 @@ import { celebrate } from '@/lib/celebrate'
 import { cn } from '@/lib/utils'
 import { batchId, createCodes, maxBatch, maxCodeAmount, protocolFee, purchasesBy, readBatch, usdcBalance, type WalletStep } from '@/lib/vault'
 import { sameAccount, useWallet } from '@/lib/wallet'
+import { isMobile } from '@/lib/walletconnect'
 import { forget, madeAny, masterOf, walletSecret } from '@/lib/walletCodes'
 
 const PRESETS = ['5', '10', '25', '50']
@@ -103,7 +104,10 @@ export default function Buy({ go }: { go: Go }) {
     if (!connected || !amount || qty < 1) return
     setNotice(null)
     // The passkey once per visit unlocks this wallet's codes; code #i comes from it.
-    let master = masterOf(connected.address) ?? (await passkey.ask('buy', connected.address))
+    let master = masterOf(connected.address)
+    // Whether the passkey sheet came up during this purchase (see `ready` below).
+    let askedPasskey = !master
+    master ??= await passkey.ask('buy', connected.address)
     if (!master) return
     let root: ReturnType<typeof merkleRoot> | null = null
     try {
@@ -119,6 +123,7 @@ export default function Buy({ go }: { go: Go }) {
         if (!choice) return
         if (choice === 'continue') break
         forget(connected.address)
+        askedPasskey = true
         const next = await passkey.ask('buy', connected.address, false)
         if (!next) return
         master = next
@@ -133,10 +138,13 @@ export default function Buy({ go }: { go: Go }) {
       // Each wallet request is its own step, started by a tap. A phone browser opens the wallet app
       // only right after one: a request sent on its own (the purchase, once the USDC approval is
       // back) would get the browser's "open this app?" prompt instead. The first request rides on the
-      // tap that started the purchase while that tap is still recent.
+      // tap that started the purchase while that tap is still recent. A passkey sheet in between
+      // doesn't leave a tap the browser counts: on a phone it is another screen, so the page waits
+      // for a tap there too.
+      const openedApp = !!connected.walletConnect && isMobile() && askedPasskey
       let first = true
       const ready = (step: WalletStep) => {
-        const fresh = first && navigator.userActivation?.isActive !== false
+        const fresh = first && !openedApp && navigator.userActivation?.isActive !== false
         first = false
         if (fresh) return Promise.resolve()
         setStage(null)

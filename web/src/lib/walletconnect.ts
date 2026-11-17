@@ -31,6 +31,10 @@ function client(): Promise<UniversalProvider> {
           description: 'Claim codes for ENS renewals.',
           url: window.location.origin,
           icons: [`${window.location.origin}/apple-touch-icon.png`],
+          // Asks wallets to hand the person back once they've decided. MetaMask on Android then steps
+          // aside to the browser; without it, it only says "you can go back now". No link is given:
+          // the site has no app, and a web link would make Android ask which app should open it.
+          redirect: {},
         },
       }),
     )
