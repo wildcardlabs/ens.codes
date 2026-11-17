@@ -62,9 +62,18 @@ export async function createCodes(
   ready: (step: WalletStep) => Promise<void> = async () => {},
 ): Promise<{ hash: Hex; block: bigint }> {
   await ensureChainFor(wallet)
+  // Everything the steps need is read now, together. A wallet request then goes out right after the
+  // tap that starts it: a phone browser opens the wallet app without asking only shortly after a tap.
+  const [fee, allowance, code, canBatch, domain, nonce] = await Promise.all([
+    protocolFee(),
+    publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: 'allowance', args: [buyer, VAULT] }),
+    publicClient.getCode({ address: buyer }),
+    batches(wallet, buyer),
+    usdcPermitDomain(),
+    publicClient.readContract({ address: USDC, abi: permitAbi, functionName: 'nonces', args: [buyer] }).catch(() => null),
+  ])
   const many = codes.length > 1
-  const total = (amount + (await protocolFee())) * BigInt(codes.length)
-  const allowance = await publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: 'allowance', args: [buyer, VAULT] })
+  const total = (amount + fee) * BigInt(codes.length)
   const confirmText = many ? `Confirm the purchase of ${codes.length} codes in your wallet…` : 'Confirm the purchase in your wallet…'
   const base = { account: buyer, address: VAULT, abi: vaultAbi } as const
   const done = (receipt: TransactionReceipt) => ({ hash: receipt.transactionHash, block: receipt.blockNumber })
@@ -79,7 +88,7 @@ export async function createCodes(
   if (allowance >= total) return create(purchase)
 
   // A wallet that can send calls as one batch approves USDC and buys in a single confirmation.
-  if (await batches(wallet, buyer)) {
+  if (canBatch) {
     await ready(purchase)
     onStep(`${confirmText.slice(0, -1)} (it includes the USDC approval)…`)
     const calls = [
@@ -97,13 +106,11 @@ export async function createCodes(
 
   // Wallets with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
   // ERC-1271, which many don't support. Use a plain approve for them.
-  const hasCode = !!(await publicClient.getCode({ address: buyer }))
-  const permitDomain = hasCode ? null : await usdcPermitDomain()
-  if (permitDomain) {
+  const permitDomain = code || nonce === null ? null : domain
+  if (permitDomain && nonce !== null) {
     await ready({ kind: 'permit', after: null })
     onStep('Approve the USDC payment in your wallet (a signature, no fee)…')
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-    const nonce = await publicClient.readContract({ address: USDC, abi: permitAbi, functionName: 'nonces', args: [buyer] })
     const sig = await wallet.signTypedData({
       account: buyer,
       domain: permitDomain,
@@ -165,7 +172,10 @@ type Caps = { atomic?: { status?: string }; atomicBatch?: { supported?: boolean 
 
 /** The wallet doesn't do this kind of request (as opposed to the person saying no). */
 function unsupported(err: unknown): boolean {
-  const codes = new Set([4200, -32601, 5700, 5710, 5720, 5740, 5750])
+  // 4200 and -32601: no such method. EIP-5792: 5700 a required capability is missing, 5710 the
+  // chain isn't supported, 5720 duplicate id, 5740 too many calls, 5750 the account upgrade was
+  // declined, 5760 this account can't run calls as one batch.
+  const codes = new Set([4200, -32601, 5700, 5710, 5720, 5740, 5750, 5760])
   return !!(err as BaseError).walk?.((e) => codes.has((e as { code?: number }).code ?? 0))
 }
 

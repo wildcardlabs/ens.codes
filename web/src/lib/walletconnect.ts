@@ -167,25 +167,38 @@ function sessionOf(p: UniversalProvider): Session | null {
 
 const approved = (session: Struct, method: string) => !!session.namespaces.eip155?.methods.includes(method)
 
-/** Wallet answers to `wallet_getCapabilities`, by session. */
+/** Wallet answers to `wallet_getCapabilities`, by session, while one is on its way. */
 const asked = new Map<string, Promise<Caps | null>>()
 type Caps = Record<string, unknown>
+/** Answers that came back, kept across reloads (they're about the wallet, not the person). */
+const CAPS = (topic: string) => `ens.codes:walletconnect-capabilities:${topic}`
+function answered(topic: string): Caps | null {
+  try {
+    return JSON.parse(localStorage.getItem(CAPS(topic)) ?? 'null') as Caps | null
+  } catch {
+    return null
+  }
+}
 
 /**
- * What the wallet can do on this chain for this account (EIP-5792), without bringing it forward.
- * Wallets often list it with the session; otherwise the wallet is asked once per session, and only
- * briefly waited for: on a phone it may be asleep in the background and not answer until opened.
+ * What the wallet can do on this chain for this account (EIP-5792), without bringing it forward and
+ * without waiting: a purchase's first wallet request has to go out right after the tap, or a phone
+ * browser asks before opening the wallet app. So this uses what the wallet listed with the session,
+ * or what it answered earlier (it is asked right after pairing, while it is still in front). With
+ * neither, it is asked now for next time, and this purchase goes the usual way.
  */
 async function capabilities(p: UniversalProvider, session: Struct, address: Address): Promise<Caps> {
   if (!approved(session, 'wallet_sendCalls')) return {}
   const listed = advertised(session, address)
   if (Object.keys(listed).length) return listed
   if (!approved(session, 'wallet_getCapabilities')) return {}
-  const answer = await Promise.race([ask(p, session, address), new Promise<null>((r) => setTimeout(() => r(null), 2000))])
-  return answer ?? {}
+  const known = answered(session.topic)
+  if (known) return known
+  void ask(p, session, address)
+  return {}
 }
 
-/** Ask the wallet for its capabilities on this chain, once per session. */
+/** Ask the wallet for its capabilities on this chain, once per session, and keep the answer. */
 function ask(p: UniversalProvider, session: Struct, address: Address): Promise<Caps | null> {
   let answer = asked.get(session.topic)
   if (!answer) {
@@ -195,9 +208,17 @@ function ask(p: UniversalProvider, session: Struct, address: Address): Promise<C
       .then((all) => {
         const caps: Caps = {}
         for (const [id, c] of Object.entries(all ?? {})) if (Number(id) === 0 || Number(id) === chain.id) Object.assign(caps, c)
+        try {
+          localStorage.setItem(CAPS(session.topic), JSON.stringify(caps))
+        } catch {
+          // Storage is unavailable: it is asked again next visit.
+        }
         return caps
       })
-      .catch(() => null)
+      .catch(() => {
+        asked.delete(session.topic)
+        return null
+      })
     asked.set(session.topic, answer)
   }
   return answer
@@ -271,6 +292,11 @@ function use(p: UniversalProvider, session: Struct) {
  */
 async function end(p: UniversalProvider, topic: string) {
   if (p.session?.topic === topic) p.session = undefined
+  try {
+    localStorage.removeItem(CAPS(topic))
+  } catch {
+    // Nothing kept.
+  }
   await p.client.disconnect({ topic, reason: { code: 6000, message: 'User disconnected.' } }).catch(() => {})
 }
 
@@ -315,7 +341,8 @@ export async function pair(onUri: (uri: string) => void): Promise<Session | null
   if (p.session) use(p, p.session)
   const s = sessionOf(p)
   // The wallet is in front right now on a phone, so this is the moment to ask what it can do.
-  if (s && p.session && approved(p.session, 'wallet_getCapabilities') && !Object.keys(advertised(p.session, s.address)).length) void ask(p, p.session, s.address)
+  if (s && p.session && approved(p.session, 'wallet_getCapabilities') && !Object.keys(advertised(p.session, s.address)).length && !answered(p.session.topic))
+    void ask(p, p.session, s.address)
   if (!s) {
     if (p.session) await end(p, p.session.topic)
     throw new Error(`Your wallet didn’t share an account on ${chain.name}. Add that network in the wallet and try again.`)
