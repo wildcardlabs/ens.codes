@@ -140,3 +140,48 @@ export function usePasskeyPrompt() {
 
   return { ask, dialog }
 }
+
+/**
+ * Before buying with a passkey that made none of this wallet's earlier codes. That is allowed: the
+ * passkey those codes came from may be gone, and the wallet shouldn't be locked out of buying. But
+ * the earlier codes won't show with this passkey, so say so and offer to pick another one first.
+ * `ask()` resolves to 'continue', 'switch', or null if the person backed out.
+ */
+export function useOtherPasskeyNotice() {
+  const [open, setOpen] = useState(false)
+  const resolver = useRef<((choice: 'continue' | 'switch' | null) => void) | null>(null)
+  const ask = useCallback(
+    () =>
+      new Promise<'continue' | 'switch' | null>((resolve) => {
+        resolver.current = resolve
+        setOpen(true)
+      }),
+    [],
+  )
+  const close = (choice: 'continue' | 'switch' | null) => {
+    resolver.current?.(choice)
+    resolver.current = null
+    setOpen(false)
+  }
+  const dialog = (
+    <Dialog open={open} onOpenChange={(o) => !o && close(null)}>
+      <DialogContent className="gap-0 p-7">
+        <Key size={76} className="-rotate-12" />
+        <DialogTitle className="t-display mt-4 text-[24px] leading-[28px]">This passkey didn’t make your earlier codes.</DialogTitle>
+        <DialogDescription className="mt-2 text-[15px] leading-[22px] text-body">
+          Codes this wallet bought before were kept with another passkey, so they won’t show with this one. You can still cancel them in My codes. New
+          codes will be kept with this passkey.
+        </DialogDescription>
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          <Button variant="soft" size="md" onClick={() => close('switch')}>
+            Pick another
+          </Button>
+          <Button size="md" onClick={() => close('continue')}>
+            Continue
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+  return { ask, dialog }
+}

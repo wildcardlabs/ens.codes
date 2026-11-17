@@ -7,7 +7,7 @@ import { ActionButton, Eyebrow, FieldLabel, Hint, PageTitle, Rows } from '@/comp
 import { Coin, Seal } from '@/components/ds/stickers'
 import { ExportDialog } from '@/components/ExportCodes'
 import { ShareActions } from '@/components/ShareCode'
-import { usePasskeyPrompt } from '@/components/PasskeyPrompt'
+import { useOtherPasskeyNotice, usePasskeyPrompt } from '@/components/PasskeyPrompt'
 import { walletStep, WalletChoices } from '@/components/wallet'
 import { Button } from '@/components/ui/button'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
@@ -22,7 +22,7 @@ import { celebrate } from '@/lib/celebrate'
 import { cn } from '@/lib/utils'
 import { batchId, createCodes, maxBatch, maxCodeAmount, protocolFee, purchasesBy, readBatch, usdcBalance } from '@/lib/vault'
 import { sameAccount, useWallet } from '@/lib/wallet'
-import { forget, masterOf, rebuilds, walletSecret } from '@/lib/walletCodes'
+import { forget, madeAny, masterOf, walletSecret } from '@/lib/walletCodes'
 
 const PRESETS = ['5', '10', '25', '50']
 const MIN_AMOUNT = 1_000_000n
@@ -55,6 +55,7 @@ export default function Buy({ go }: { go: Go }) {
   const [done, setDone] = useState<Done | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const passkey = usePasskeyPrompt()
+  const otherPasskey = useOtherPasskeyNotice()
   /** False where this browser's passkeys can't keep codes: buying is blocked there. */
   const [canKeep, setCanKeep] = useState<boolean | null>(null)
 
@@ -98,7 +99,7 @@ export default function Buy({ go }: { go: Go }) {
     if (!connected || !amount || qty < 1) return
     setNotice(null)
     // The passkey once per visit unlocks this wallet's codes; code #i comes from it.
-    const master = masterOf(connected.address) ?? (await passkey.ask('buy', connected.address))
+    let master = masterOf(connected.address) ?? (await passkey.ask('buy', connected.address))
     if (!master) return
     let root: ReturnType<typeof merkleRoot> | null = null
     try {
@@ -106,13 +107,22 @@ export default function Buy({ go }: { go: Go }) {
       setStage('Preparing your codes…')
       // Next code numbers follow the codes this wallet has already bought.
       const before = await purchasesBy(connected.address, VAULT_DEPLOY_BLOCK)
-      // A wallet's codes all come from one passkey. Another one would make codes My codes can't show.
-      if (before.length && !rebuilds(master, before[0], 0)) {
+      // A passkey that made none of this wallet's earlier codes may be a mistake, or the old one may be
+      // gone. Say what that means and let the person pick another or carry on.
+      while (before.length && !madeAny(master, before)) {
+        setStage(null)
+        const choice = await otherPasskey.ask()
+        if (!choice) return
+        if (choice === 'continue') break
         forget(connected.address)
-        throw new Error('This isn’t the passkey you bought with before using this wallet. Try again and pick that one.')
+        const next = await passkey.ask('buy', connected.address, false)
+        if (!next) return
+        master = next
       }
+      setStage('Preparing your codes…')
+      const chosen = master
       const start = before.reduce((n, p) => n + p.count, 0)
-      const secrets = Array.from({ length: qty }, (_, i) => walletSecret(master, start + i))
+      const secrets = Array.from({ length: qty }, (_, i) => walletSecret(chosen, start + i))
       // Only the addresses of the codes' keys go onchain, committed together as one purchase.
       const addresses = secrets.map((s) => keyForSecret(s).address)
       root = merkleRoot(addresses)
@@ -160,6 +170,7 @@ export default function Buy({ go }: { go: Go }) {
   return (
     <>
       {passkey.dialog}
+      {otherPasskey.dialog}
       <PageTitle title="Buy a claim code." />
       {/* Wide screens: the ticket and the receipt share a row and a height; the controls sit under the ticket. */}
       <div className="grid gap-x-14 gap-y-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">

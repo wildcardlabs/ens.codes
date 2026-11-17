@@ -197,9 +197,13 @@ export default function MyCodes({ go }: { go: Go }) {
    * Re-derive this wallet's codes. Code number n comes from the buyer's passkey and n; a purchase's
    * codes are shown only if they reproduce the root the vault stored for it, which proves they are
    * the codes that were bought.
+   *
+   * A wallet's codes can come from more than one passkey (one was lost and another used since), so
+   * each passkey shows the purchases it made, and `another` asks for a further passkey to show more.
    */
-  async function showCodes(reason: UnlockReason = 'view'): Promise<Map<string, string> | null> {
+  async function showCodes(reason: UnlockReason = 'view', another = false): Promise<Map<string, string> | null> {
     if (!connected || !rows) return null
+    if (another) forget(connected.address)
     // The dialog names what the person pressed, so the passkey after Export or Copy link isn't a surprise.
     // Only the passkey the codes came from can show them, so it doesn't offer to make a new one.
     const master = masterOf(connected.address) ?? (await passkey.ask(reason, connected.address, false))
@@ -219,11 +223,17 @@ export default function MyCodes({ go }: { go: Go }) {
       // Nothing matched: most likely another passkey. Forget it so the next try asks again.
       if (found.size === 0 && rows.length > 0) {
         forget(connected.address)
-        setError('That passkey didn’t make these codes. Try again with the passkey you bought with. Unused codes can still be cancelled.')
-        return null
+        setError(
+          codes
+            ? 'That passkey didn’t make any of the hidden codes.'
+            : 'That passkey didn’t make these codes. Try again with the passkey you bought with. Unused codes can still be cancelled.',
+        )
+        return codes
       }
-      setCodes(found)
-      return found
+      // Keep what other passkeys already showed.
+      const shown = new Map([...(codes ?? []), ...found])
+      setCodes(shown)
+      return shown
     } catch (err) {
       setError(errorMessage(err))
       return null
@@ -344,6 +354,8 @@ export default function MyCodes({ go }: { go: Go }) {
   /** Selected codes in the view (any status), and the ones among them that can be cancelled. */
   const chosen = view.filter((r) => selected.has(r.id))
   const picked = chosen.filter(unused)
+  /** Codes no passkey used so far has shown: made with another one, or before passkeys. */
+  const hidden = codes && rows ? rows.filter((r) => !codes.has(r.id)).length : 0
   /** A row as it goes into an export. Codes this wallet can't reproduce are left out. */
   const toItems = (list: Row[]): ExportItem[] =>
     [...list]
@@ -515,6 +527,15 @@ export default function MyCodes({ go }: { go: Go }) {
         </div>
 
         {error && <p className="mx-4 mt-3 rounded-md bg-card px-3 py-2 text-[14px] text-red">{error}</p>}
+        {codes && rows && hidden > 0 && (
+          <p className="mx-4 mt-3 rounded-md bg-card px-3 py-2 text-[14px] leading-5 text-body">
+            {hidden === 1 ? '1 code was' : `${hidden} codes were`} made with another passkey, or before passkeys, so {hidden === 1 ? 'it stays' : 'they stay'}{' '}
+            hidden. You can still cancel {hidden === 1 ? 'it' : 'them'}.{' '}
+            <button type="button" className="t-link font-medium" disabled={unlocking} onClick={() => void showCodes('view', true)}>
+              Use another passkey
+            </button>
+          </p>
+        )}
 
         {rows === null && !error ? (
           <div className="flex items-center gap-2 px-4 py-8 text-[14px] text-caption">

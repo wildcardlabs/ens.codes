@@ -64,3 +64,15 @@ export function rebuilds(master: Hex, purchase: { root: Hex; count: number }, fi
   const secrets = Array.from({ length: purchase.count }, (_, i) => walletSecret(master, first + i))
   return merkleRoot(secrets.map((s) => keyForSecret(s).address)) === purchase.root
 }
+
+/**
+ * Whether `master` made any of a wallet's purchases, given in the order they were bought. A wallet's
+ * codes can come from more than one passkey (one was lost, say), so any match counts. The newest
+ * purchase is tried first: it is the likeliest match and the check usually stops there.
+ */
+export function madeAny(master: Hex, purchases: { root: Hex; count: number }[]): boolean {
+  const firsts: number[] = []
+  purchases.reduce((n, p) => (firsts.push(n), n + p.count), 0)
+  for (let i = purchases.length - 1; i >= 0; i--) if (rebuilds(master, purchases[i], firsts[i])) return true
+  return false
+}
