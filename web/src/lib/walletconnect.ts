@@ -16,18 +16,44 @@ const WALLET_METHODS = ['eth_sendTransaction', 'eth_signTypedData_v4']
 
 let loading: Promise<UniversalProvider> | null = null
 function client(): Promise<UniversalProvider> {
-  loading ??= import('@walletconnect/universal-provider').then(({ UniversalProvider }) =>
-    UniversalProvider.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: {
-        name: SITE_HOST,
-        description: 'Claim codes for ENS renewals.',
-        url: window.location.origin,
-        icons: [`${window.location.origin}/apple-touch-icon.png`],
-      },
-    }),
-  )
+  loading ??= import('@walletconnect/universal-provider')
+    .then(({ UniversalProvider }) =>
+      UniversalProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        metadata: {
+          name: SITE_HOST,
+          description: 'Claim codes for ENS renewals.',
+          url: window.location.origin,
+          icons: [`${window.location.origin}/apple-touch-icon.png`],
+        },
+      }),
+    )
+    .then((p) => {
+      reconnectOnReturn(p)
+      return p
+    })
   return loading
+}
+
+/**
+ * Reconnect to the relay as soon as the page is back in front. On a phone the browser pauses the
+ * page while the wallet app is open, and its connection to the relay can die without the page being
+ * told. The client only checks for a stalled connection when it runs on a server, so in a browser
+ * the wallet's answer would wait until the dead connection is noticed. A fresh connection picks up
+ * whatever the wallet sent in the meantime.
+ */
+function reconnectOnReturn(p: UniversalProvider) {
+  let hiddenAt = 0
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now()
+      return
+    }
+    // A glance away (a notification, a quick app switch) doesn't need a new connection.
+    if (!hiddenAt || Date.now() - hiddenAt < 2000) return
+    hiddenAt = 0
+    p.client.core.relayer.restartTransport().catch(() => {})
+  })
 }
 
 /**
