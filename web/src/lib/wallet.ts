@@ -67,6 +67,20 @@ if (typeof window !== 'undefined') {
       ).finally(() => set({ restoring: false }))
     else set({ restoring: false })
   }
+  // The page reloaded while a wallet app had the pairing open (Android does this to background tabs):
+  // its approval can still arrive. Wait briefly before showing the login, then keep listening quietly.
+  else if (WALLETCONNECT && wc.pairingPending()) {
+    set({ restoring: true })
+    const shortWait = setTimeout(() => set({ restoring: false }), 6000)
+    wc.watchPending((s) => {
+      clearTimeout(shortWait)
+      if (!state.connected) {
+        adoptSession(s)
+        remember(WALLETCONNECT_ID)
+      }
+      set({ restoring: false, pairing: null })
+    }).catch(() => set({ restoring: false }))
+  }
   // The remembered wallet never announced itself (removed or disabled): stop waiting for it.
   else setTimeout(() => state.restoring && set({ restoring: false }), 1500)
   if (DEV_WALLET) announceDevWallet()
