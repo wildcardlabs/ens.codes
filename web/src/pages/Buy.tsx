@@ -20,7 +20,7 @@ import { soldLengths } from '@/lib/pricing'
 import { errorMessage } from '@/lib/util'
 import { celebrate } from '@/lib/celebrate'
 import { cn } from '@/lib/utils'
-import { batchId, createCodes, maxBatch, maxCodeAmount, protocolFee, purchasesBy, readBatch, usdcBalance } from '@/lib/vault'
+import { batchId, createCodes, maxBatch, maxCodeAmount, protocolFee, purchasesBy, readBatch, usdcBalance, type WalletStep } from '@/lib/vault'
 import { sameAccount, useWallet } from '@/lib/wallet'
 import { forget, madeAny, masterOf, walletSecret } from '@/lib/walletCodes'
 
@@ -52,6 +52,10 @@ export default function Buy({ go }: { go: Go }) {
   const [pricing, setPricing] = useState<Pricing | null>(null)
   const [balance, setBalance] = useState<bigint | null>(null)
   const [stage, setStage] = useState<string | null>(null)
+  /** The next wallet step, waiting for the person to start it. */
+  const [next, setNext] = useState<{ step: WalletStep; go: () => void; stop: () => void } | null>(null)
+  /** A purchase is under way: the form can't change until it ends. */
+  const locked = !!stage || !!next
   const [done, setDone] = useState<Done | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const passkey = usePasskeyPrompt()
@@ -126,11 +130,36 @@ export default function Buy({ go }: { go: Go }) {
       // Only the addresses of the codes' keys go onchain, committed together as one purchase.
       const addresses = secrets.map((s) => keyForSecret(s).address)
       root = merkleRoot(addresses)
-      const { block } = await createCodes(connected.client, connected.address, addresses, amount, setStage)
+      // Each wallet request is its own step, started by a tap. A phone browser opens the wallet app
+      // only right after one: a request sent on its own (the purchase, once the USDC approval is
+      // back) would get the browser's "open this app?" prompt instead. The first request rides on the
+      // tap that started the purchase while that tap is still recent.
+      let first = true
+      const ready = (step: WalletStep) => {
+        const fresh = first && navigator.userActivation?.isActive !== false
+        first = false
+        if (fresh) return Promise.resolve()
+        setStage(null)
+        return new Promise<void>((resolve, reject) =>
+          setNext({
+            step,
+            go: () => {
+              setNext(null)
+              resolve()
+            },
+            stop: () => {
+              setNext(null)
+              reject(STOPPED)
+            },
+          }),
+        )
+      }
+      const { block } = await createCodes(connected.client, connected.address, addresses, amount, setStage, ready)
       // A code ends with the block it was bought in, so it can be found again without a search.
       const where = Number(block - VAULT_DEPLOY_BLOCK)
       setDone({ codes: secrets.map((s) => codeFor(s, where)), amount })
     } catch (err) {
+      if (err === STOPPED) return
       // The purchase may have landed even if the page saw an error.
       const made = root ? await readBatch(batchId(connected.address, root)).catch(() => null) : null
       setNotice(made ? 'Your purchase went through. See My codes.' : errorMessage(err))
@@ -140,8 +169,10 @@ export default function Buy({ go }: { go: Go }) {
   }
 
   const short = balance !== null && total !== null && balance < total
+  const buyLabel = qty > 1 ? `Buy ${qty} codes · ${fmtUsdc(total ?? 0n)}` : `Buy ${fmtUsdc(amount ?? 0n)} claim code · ${fmtUsdc(total ?? 0n)}`
   const button = ((): { label: string; action?: () => void; busy?: boolean } => {
     if (stage) return { label: stage, busy: true }
+    if (next) return { label: next.step.kind === 'purchase' ? buyLabel : 'Approve USDC', action: next.go }
     if (amount === null || amount === 0n) return { label: 'Enter an amount' }
     if (amount < MIN_AMOUNT) return { label: 'The smallest code is $1' }
     if (amount > max) return { label: `The largest code is ${fmtUsdc(max)}` }
@@ -153,7 +184,7 @@ export default function Buy({ go }: { go: Go }) {
     if (typeof window !== 'undefined' && (!passkeysAvailable() || canKeep === false)) return { label: 'Passkeys don’t work here' }
     if (!connected) return restoring || typeof window === 'undefined' ? { label: 'Connect wallet' } : walletStep(wallets, setChoosing, setNotice)
     if (short) return { label: 'Not enough USDC in this wallet' }
-    return { label: qty > 1 ? `Buy ${qty} codes · ${fmtUsdc(total!)}` : `Buy ${fmtUsdc(amount)} claim code · ${fmtUsdc(total!)}`, action: () => void buy() }
+    return { label: buyLabel, action: () => void buy() }
   })()
 
   /** Back to an empty form: the last purchase's value and quantity don't carry over. */
@@ -175,7 +206,7 @@ export default function Buy({ go }: { go: Go }) {
       {/* Wide screens: the ticket and the receipt share a row and a height; the controls sit under the ticket. */}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-x-14 gap-y-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         {/* The ticket is the form: what you fill in is what the recipient gets. */}
-        <section className="lg:col-start-1 lg:row-start-1" aria-busy={!!stage}>
+        <section className="lg:col-start-1 lg:row-start-1" aria-busy={locked}>
           <CodeTicket
             fill
             count={qty}
@@ -201,7 +232,7 @@ export default function Buy({ go }: { go: Go }) {
                   style={{ width: `${Math.max(1, amountInput.length) + 0.4}ch` }}
                   placeholder="0"
                   value={amountInput}
-                  disabled={!!stage}
+                  disabled={locked}
                   onChange={(e) => setAmountInput(cleanAmount(e.target.value))}
                 />
               </label>
@@ -215,7 +246,7 @@ export default function Buy({ go }: { go: Go }) {
               <FieldLabel>Amount</FieldLabel>
               <div className="mt-2 flex gap-2">
                 {PRESETS.map((p) => (
-                  <Button key={p} variant={amountInput === p ? 'default' : 'soft'} size="md" className="flex-1 px-0" aria-pressed={amountInput === p} disabled={!!stage} onClick={() => setAmountInput(p)}>
+                  <Button key={p} variant={amountInput === p ? 'default' : 'soft'} size="md" className="flex-1 px-0" aria-pressed={amountInput === p} disabled={locked} onClick={() => setAmountInput(p)}>
                     ${p}
                   </Button>
                 ))}
@@ -224,7 +255,7 @@ export default function Buy({ go }: { go: Go }) {
             <div>
               <FieldLabel htmlFor="qty">How many</FieldLabel>
               <div className="mt-2 flex h-10 w-fit items-center gap-1 rounded-pill bg-pill px-1">
-                <Button variant="ghost" size="icon" aria-label="One code fewer" disabled={!!stage || qty <= 1} onClick={() => setQtyInput(String(Math.max(1, qty - 1)))}>
+                <Button variant="ghost" size="icon" aria-label="One code fewer" disabled={locked || qty <= 1} onClick={() => setQtyInput(String(Math.max(1, qty - 1)))}>
                   <Minus aria-hidden="true" />
                 </Button>
                 <input
@@ -233,10 +264,10 @@ export default function Buy({ go }: { go: Go }) {
                   autoComplete="off"
                   className="w-10 bg-transparent text-center text-[15px] font-medium text-foreground outline-none"
                   value={qtyInput}
-                  disabled={!!stage}
+                  disabled={locked}
                   onChange={(e) => setQtyInput(e.target.value.replace(/\D/g, '').slice(0, 3))}
                 />
-                <Button variant="ghost" size="icon" aria-label="One code more" disabled={!!stage || qty >= maxQty} onClick={() => setQtyInput(String(Math.min(maxQty, (qty || 0) + 1)))}>
+                <Button variant="ghost" size="icon" aria-label="One code more" disabled={locked || qty >= maxQty} onClick={() => setQtyInput(String(Math.min(maxQty, (qty || 0) + 1)))}>
                   <Plus aria-hidden="true" />
                 </Button>
               </div>
@@ -289,6 +320,14 @@ export default function Buy({ go }: { go: Go }) {
           {notice && (
             <p role="alert" className="mt-3 text-[13px] text-red">
               {notice}
+            </p>
+          )}
+          {next && (
+            <p className="mt-3 text-[13px] leading-5 text-caption">
+              {stepNote(next.step)}{' '}
+              <button type="button" className="t-link font-medium" onClick={next.stop}>
+                Cancel
+              </button>
             </p>
           )}
           {stage && <p className="mt-3 text-[13px] text-caption">Keep this page open until the purchase confirms.</p>}
@@ -446,4 +485,14 @@ function BatchReady({ done, onAnother, go }: { done: Done; onAnother: () => void
       </aside>
     </div>
   )
+}
+
+/** Thrown when the person cancels between wallet steps: nothing to report. */
+const STOPPED = new Error('stopped')
+
+/** What the person is about to do, and what just happened, between two wallet steps. */
+function stepNote(step: WalletStep): string {
+  if (step.kind === 'purchase') return step.after ? 'USDC approved. Next, confirm the purchase in your wallet.' : 'Confirm the purchase in your wallet.'
+  if (step.after === 'permit') return 'This wallet’s signature can’t approve the payment, so approve USDC with a transaction instead.'
+  return step.kind === 'permit' ? 'First approve the USDC payment (a signature, no fee), then confirm the purchase.' : 'First approve USDC, then confirm the purchase.'
 }

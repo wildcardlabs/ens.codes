@@ -48,6 +48,9 @@ async function confirmed(hash: Hex, onStep?: (text: string) => void): Promise<Tr
  * is one, otherwise a USDC permit for the total, and falls back to an approve transaction if a
  * permit would not work for this wallet.
  *
+ * Each wallet request is its own step: `ready` is awaited before each one, with what that step does,
+ * so the page can wait for the person to start it (see `WalletStep`).
+ *
  * Returns the block the purchase landed in: it becomes part of each code (see `code.ts`).
  */
 export async function createCodes(
@@ -56,6 +59,7 @@ export async function createCodes(
   codes: Address[],
   amount: bigint,
   onStep: (text: string) => void,
+  ready: (step: WalletStep) => Promise<void> = async () => {},
 ): Promise<{ hash: Hex; block: bigint }> {
   await ensureChainFor(wallet)
   const many = codes.length > 1
@@ -65,19 +69,21 @@ export async function createCodes(
   const base = { account: buyer, address: VAULT, abi: vaultAbi } as const
   const done = (receipt: TransactionReceipt) => ({ hash: receipt.transactionHash, block: receipt.blockNumber })
 
-  const create = async () =>
-    done(await confirmed(await wallet.writeContract({ ...base, chain: wallet.chain, functionName: 'create', args: [codes, amount] }), onStep))
-
-  if (allowance >= total) {
+  const purchase: WalletStep = { kind: 'purchase', after: null }
+  const create = async (step: WalletStep) => {
+    await ready(step)
     onStep(confirmText)
-    return create()
+    return done(await confirmed(await wallet.writeContract({ ...base, chain: wallet.chain, functionName: 'create', args: [codes, amount] }), onStep))
   }
+
+  if (allowance >= total) return create(purchase)
 
   // Wallets with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
   // ERC-1271, which many don't support. Use a plain approve for them.
   const hasCode = !!(await publicClient.getCode({ address: buyer }))
   const permitDomain = hasCode ? null : await usdcPermitDomain()
   if (permitDomain) {
+    await ready({ kind: 'permit', after: null })
     onStep('Approve the USDC payment in your wallet (a signature, no fee)…')
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
     const nonce = await publicClient.readContract({ address: USDC, abi: permitAbi, functionName: 'nonces', args: [buyer] })
@@ -105,19 +111,26 @@ export async function createCodes(
       () => false,
     )
     if (works) {
+      await ready({ kind: 'purchase', after: 'permit' })
       onStep(confirmText)
       return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep))
     }
   }
 
+  await ready({ kind: 'approve', after: permitDomain ? 'permit' : null })
   onStep('Approve USDC for the claim codes in your wallet…')
   await confirmed(
     await wallet.writeContract({ account: buyer, chain: wallet.chain, address: USDC, abi: erc20Abi, functionName: 'approve', args: [VAULT, total] }),
     onStep,
   )
-  onStep(confirmText)
-  return create()
+  return create({ kind: 'purchase', after: 'approve' })
 }
+
+/**
+ * One wallet request in a purchase: approving USDC with a signature (`permit`) or a transaction
+ * (`approve`), or the purchase itself. `after` is the step that just finished, if any.
+ */
+export type WalletStep = { kind: 'permit' | 'approve' | 'purchase'; after: 'permit' | 'approve' | null }
 
 const permitAbi = [
   { type: 'function', name: 'nonces', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },

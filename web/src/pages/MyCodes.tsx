@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Eye, Link2, Loader2, MoreHorizontal, Search, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Eye, Info, Link2, Loader2, MoreHorizontal, Search, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { Hex } from 'viem'
@@ -526,9 +526,9 @@ export default function MyCodes({ go }: { go: Go }) {
           )}
         </div>
 
-        {error && <p className="mx-4 mt-3 rounded-md bg-card px-3 py-2 text-[14px] text-red">{error}</p>}
+        {error && <p className="mx-4 my-3 rounded-md bg-card px-3 py-2 text-[14px] text-red">{error}</p>}
         {codes && rows && hidden > 0 && (
-          <p className="mx-4 mt-3 rounded-md bg-card px-3 py-2 text-[14px] leading-5 text-body">
+          <p className="mx-4 my-3 rounded-md bg-card px-3 py-2 text-[14px] leading-5 text-body">
             {hidden === 1 ? '1 code was' : `${hidden} codes were`} made with another passkey, or before passkeys, so {hidden === 1 ? 'it stays' : 'they stay'}{' '}
             hidden. You can still cancel {hidden === 1 ? 'it' : 'them'}.{' '}
             <button type="button" className="t-link font-medium" disabled={unlocking} onClick={() => void showCodes('view', true)}>
@@ -604,7 +604,13 @@ export default function MyCodes({ go }: { go: Go }) {
                             )}
                           </button>
                         ) : (
-                          <span className={cn(MONO, 'whitespace-nowrap text-caption/60')}>{codes ? 'not recoverable' : '•••••-•••••-•••••'}</span>
+                          codes ? (
+                            <span className="whitespace-nowrap text-[13px] text-caption" title="Made with another passkey. Use that passkey to show it; you can cancel it either way.">
+                              Other passkey
+                            </span>
+                          ) : (
+                            <span className={cn(MONO, 'whitespace-nowrap text-caption/60')}>•••••-•••••-•••••</span>
+                          )
                         )}
                       </TableCell>
                       <TableCell>
@@ -637,11 +643,17 @@ export default function MyCodes({ go }: { go: Go }) {
                             )}
                             {r.state === 'unused' && (
                               <>
-                                <DropdownMenuSeparator />
+                                {(code || !codes) && <DropdownMenuSeparator />}
                                 <DropdownMenuItem variant="destructive" onSelect={() => setConfirm([r])}>
                                   <Undo2 aria-hidden="true" /> Cancel and get back {fmtBalance(r.amount)}
                                 </DropdownMenuItem>
                               </>
+                            )}
+                            {/* A code made with another passkey that is already used up: nothing left to do, so say why. */}
+                            {codes && !code && r.state !== 'unused' && (
+                              <DropdownMenuItem disabled>
+                                <Info aria-hidden="true" /> {r.state === 'redeemed' ? 'Already redeemed' : 'Already cancelled, USDC returned'}
+                              </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>

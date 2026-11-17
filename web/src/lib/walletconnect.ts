@@ -1,4 +1,5 @@
 import type UniversalProvider from '@walletconnect/universal-provider'
+import { toast } from 'sonner'
 import { type Address, type EIP1193Provider, numberToHex } from 'viem'
 import { chain, publicClient, SITE_HOST, WALLETCONNECT_PROJECT_ID } from './config'
 
@@ -78,11 +79,29 @@ function accountsOf(p: UniversalProvider): Address[] {
  * wallet's own app link (`somewallet://`) is used. A web link (`https://…`) is never followed: Android
  * asks whether the browser or an app should open it, and if the browser does, this page is left
  * behind mid-purchase. Without an app link the person switches to the wallet themselves.
+ *
+ * Browsers open another app without asking only right after a tap. A request sent later (the second
+ * step of a purchase, after the person came back from the wallet) would get the browser's own "open
+ * this app?" prompt, so the page offers its own button instead: tapping it counts as a fresh tap.
  */
-function openWallet(p: UniversalProvider) {
+function openWallet(p: UniversalProvider, pending: Promise<unknown>) {
   if (!isMobile()) return
-  const native = p.session?.peer.metadata.redirect?.native
-  if (native && !/^(https?|javascript|data):/i.test(native.trim())) window.location.href = native
+  const native = p.session?.peer.metadata.redirect?.native?.trim()
+  if (!native || /^(https?|javascript|data):/i.test(native)) return
+  if (navigator.userActivation?.isActive !== false) {
+    window.location.href = native
+    return
+  }
+  const name = p.session?.peer.metadata.name || 'your wallet'
+  const id = 'wallet-request'
+  toast(`${name} has a request waiting.`, {
+    id,
+    description: 'Open it to approve, then come back here.',
+    duration: Infinity,
+    action: { label: 'Open', onClick: () => void (window.location.href = native) },
+  })
+  const done = () => void toast.dismiss(id)
+  pending.then(done, done)
 }
 
 export type Session = { provider: EIP1193Provider; address: Address; name: string; icon?: string }
@@ -105,7 +124,7 @@ function sessionOf(p: UniversalProvider): Session | null {
       if (method.startsWith('wallet_')) throw Object.assign(new Error(`${method} isn't available over WalletConnect.`), { code: 4200 })
       if (WALLET_METHODS.includes(method)) {
         const pending = p.client.request({ topic: session.topic, chainId: CAIP, request: { method, params: params as unknown[] } })
-        openWallet(p)
+        openWallet(p, pending)
         return pending
       }
       return (publicClient.request as (args: { method: string; params?: unknown }) => Promise<unknown>)({ method, params })
