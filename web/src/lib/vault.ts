@@ -32,7 +32,7 @@ export const usdcBalance = (owner: Address) =>
   publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: 'balanceOf', args: [owner] })
 
 async function confirmed(hash: Hex, onStep?: (text: string) => void): Promise<TransactionReceipt> {
-  onStep?.('Waiting for the network to confirm…')
+  onStep?.('Confirming…')
   const receipt = await publicClient.waitForTransactionReceipt({ hash })
   if (receipt.status !== 'success') throw new Error('The transaction failed.')
   // What is read next must include this block: the provider's nodes don't all move in step, and
@@ -72,9 +72,9 @@ export async function createCodes(
     usdcPermitDomain(),
     publicClient.readContract({ address: USDC, abi: permitAbi, functionName: 'nonces', args: [buyer] }).catch(() => null),
   ])
-  const many = codes.length > 1
   const total = (amount + fee) * BigInt(codes.length)
-  const confirmText = many ? `Confirm the purchase of ${codes.length} codes in your wallet…` : 'Confirm the purchase in your wallet…'
+  // Button labels stay short: one line on a phone. The note under the button says the rest.
+  const confirmText = 'Confirm in your wallet…'
   const base = { account: buyer, address: VAULT, abi: vaultAbi } as const
   const done = (receipt: TransactionReceipt) => ({ hash: receipt.transactionHash, block: receipt.blockNumber })
 
@@ -90,7 +90,7 @@ export async function createCodes(
   // A wallet that can send calls as one batch approves USDC and buys in a single confirmation.
   if (canBatch) {
     await ready(purchase)
-    onStep(`${confirmText.slice(0, -1)} (it includes the USDC approval)…`)
+    onStep(confirmText)
     const calls = [
       { to: USDC, abi: erc20Abi, functionName: 'approve', args: [VAULT, total] },
       { to: VAULT, abi: vaultAbi, functionName: 'create', args: [codes, amount] },
@@ -109,7 +109,7 @@ export async function createCodes(
   const permitDomain = code || nonce === null ? null : domain
   if (permitDomain && nonce !== null) {
     await ready({ kind: 'permit', after: null })
-    onStep('Approve the USDC payment in your wallet (a signature, no fee)…')
+    onStep('Sign in your wallet…')
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
     const sig = await wallet.signTypedData({
       account: buyer,
@@ -143,7 +143,7 @@ export async function createCodes(
   }
 
   await ready({ kind: 'approve', after: permitDomain ? 'permit' : null })
-  onStep('Approve USDC for the claim codes in your wallet…')
+  onStep('Approve USDC in your wallet…')
   await confirmed(
     await wallet.writeContract({ account: buyer, chain: wallet.chain, address: USDC, abi: erc20Abi, functionName: 'approve', args: [VAULT, total] }),
     onStep,

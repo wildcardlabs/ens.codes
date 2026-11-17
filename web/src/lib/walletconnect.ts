@@ -105,25 +105,31 @@ function accountsOf(p: UniversalProvider): Address[] {
  * asks whether the browser or an app should open it, and if the browser does, this page is left
  * behind mid-purchase. Without an app link the person switches to the wallet themselves.
  *
+ * The link is WalletConnect's request link, `somewallet://wc?sessionTopic=…`, as WalletConnect's own
+ * client builds it. Wallets read that as "show the waiting request". A bare `somewallet://` is not
+ * understood everywhere: MetaMask turns it into a web link it calls invalid, which Android then
+ * offers to open in Chrome or MetaMask.
+ *
  * Browsers open another app without asking only right after a tap. A request sent later (the second
  * step of a purchase, after the person came back from the wallet) would get the browser's own "open
  * this app?" prompt, so the page offers its own button instead: tapping it counts as a fresh tap.
  */
 function openWallet(p: UniversalProvider, pending: Promise<unknown>) {
-  if (!isMobile()) return
-  const native = p.session?.peer.metadata.redirect?.native?.trim()
+  if (!isMobile() || !p.session) return
+  const native = p.session.peer.metadata.redirect?.native?.trim()
   if (!native || /^(https?|javascript|data):/i.test(native)) return
+  const link = `${native.endsWith('/') ? native.slice(0, -1) : native}/wc?sessionTopic=${p.session.topic}`
   if (navigator.userActivation?.isActive !== false) {
-    window.location.href = native
+    window.location.href = link
     return
   }
-  const name = p.session?.peer.metadata.name || 'your wallet'
+  const name = p.session.peer.metadata.name || 'your wallet'
   const id = 'wallet-request'
   toast(`${name} has a request waiting.`, {
     id,
     description: 'Open it to approve, then come back here.',
     duration: Infinity,
-    action: { label: 'Open', onClick: () => void (window.location.href = native) },
+    action: { label: 'Open', onClick: () => void (window.location.href = link) },
   })
   const done = () => void toast.dismiss(id)
   pending.then(done, done)
@@ -253,12 +259,13 @@ function advertised(session: Struct, address: Address): Caps {
  * approval; this lets the reloaded page pick the approval up (see `watchPending`).
  */
 const PENDING = 'ens.codes:walletconnect-pairing'
+/** The link is wc:<pairing topic>@2?expiryTimestamp=<seconds>&... */
+const topicOf = (uri: string) => uri.slice(3, uri.indexOf('@'))
 type Pending = { topic: string; until: number }
 function markPending(uri: string | null) {
   try {
     if (!uri) return localStorage.removeItem(PENDING)
-    // The link is wc:<pairing topic>@2?expiryTimestamp=<seconds>&...
-    const topic = uri.slice(3, uri.indexOf('@'))
+    const topic = topicOf(uri)
     const at = Number(new URLSearchParams(uri.split('?')[1] ?? '').get('expiryTimestamp'))
     localStorage.setItem(PENDING, JSON.stringify({ topic, until: at > 0 ? at * 1000 : Date.now() + 5 * 60_000 } satisfies Pending))
   } catch {
@@ -312,22 +319,30 @@ let pairing = false
 export async function pair(onUri: (uri: string) => void): Promise<Session | null> {
   const mine = ++attempt
   const p = await client()
+  let topic: string | null = null
   const show = (uri: string) => {
     if (mine !== attempt) return
+    topic = topicOf(uri)
     markPending(uri)
     onUri(uri)
   }
   p.on('display_uri', show)
   pairing = true
+  const saved = savedSession(p, () => topic)
   try {
     // A session already open stays until the new one is approved (`use` then ends it). Ending it here
     // would clear the client's pairings in the background, racing the pairing about to be made.
-    await p.connect({
+    const connecting = p.connect({
       optionalNamespaces: {
         eip155: { chains: [CAIP], methods: [...WALLET_METHODS, ...QUIET_METHODS], events: ['accountsChanged', 'chainChanged'], rpcMap: { [CAIP]: chain.rpcUrls.default.http[0] } },
       },
     })
+    // Once the session is saved it is ready; the client finishes in the background.
+    connecting.catch(() => {})
+    const early = await Promise.race([connecting.then(() => null), saved.promise])
+    if (early) p.session = early
   } finally {
+    saved.stop()
     p.off('display_uri', show)
     if (mine === attempt) {
       pairing = false
@@ -348,6 +363,26 @@ export async function pair(onUri: (uri: string) => void): Promise<Session | null
     throw new Error(`Your wallet didn’t share an account on ${chain.name}. Add that network in the wallet and try again.`)
   }
   return s
+}
+
+/**
+ * The session a pairing produced, as soon as the client has saved it. The client only reports it
+ * after the relay confirms the page's reply to the wallet, and with the wallet app paused in the
+ * background (as a phone does once the person leaves it) the relay spends about 6 seconds trying to
+ * deliver that reply first. The session works from the moment it is saved.
+ */
+function savedSession(p: UniversalProvider, topic: () => string | null) {
+  let timer: ReturnType<typeof setInterval> | undefined
+  const promise = new Promise<Struct>((resolve) => {
+    timer = setInterval(() => {
+      const t = topic()
+      const found = t ? p.client.session.getAll().find((x) => x.pairingTopic === t) : undefined
+      if (!found) return
+      clearInterval(timer)
+      resolve(found)
+    }, 150)
+  })
+  return { promise, stop: () => clearInterval(timer) }
 }
 
 /** The person closed the pairing screen: a wallet approving later is ignored. */
@@ -373,22 +408,15 @@ export async function watchPending(onSession: (s: Session) => void) {
     onSession(s)
     return true
   }
-  const stored = p.client.session.getAll().find((x) => x.pairingTopic === waiting.topic)
-  if (stored && adopt(stored)) return
-  const stop = () => {
-    p.client.off('session_connect', onConnect)
-    clearTimeout(timer)
-  }
-  const onConnect = ({ session }: { session: Struct }) => {
-    if (pairing || session.pairingTopic !== waiting.topic) return
-    stop()
-    adopt(session)
-  }
-  p.client.on('session_connect', onConnect)
+  const saved = savedSession(p, () => waiting.topic)
   const timer = setTimeout(() => {
-    stop()
+    saved.stop()
     markPending(null)
   }, waiting.until - Date.now())
+  const session = await saved.promise
+  clearTimeout(timer)
+  // A pairing started since then has its own wait.
+  if (!pairing) adopt(session)
 }
 
 /** The session from last visit, if the wallet still holds it. */
