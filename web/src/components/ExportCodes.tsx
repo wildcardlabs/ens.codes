@@ -29,7 +29,7 @@ type Paper = 'a4' | 'letter'
 type Layout = 'marks' | 'plain' | 'single'
 
 const FORMATS: { key: Format; icon: typeof Printer; title: string; body: string }[] = [
-  { key: 'csv', icon: FileSpreadsheet, title: 'Spreadsheet', body: 'A CSV with each code, its link, value and number.' },
+  { key: 'csv', icon: FileSpreadsheet, title: 'Spreadsheet', body: 'A CSV with each code, its link and value.' },
   { key: 'vouchers', icon: Printer, title: 'Printable vouchers', body: 'Card size. Sheets to cut, or one per page for a print shop.' },
   { key: 'images', icon: Images, title: 'Images', body: 'One picture per code, in a ZIP.' },
 ]
@@ -283,13 +283,12 @@ function VoucherSheet({ items, paper, layout }: { items: ExportItem[]; paper: Pa
                     <div className="voucher-caption">Claim code for ENS renewals</div>
                     <div className="voucher-value">{fmtUsdc(item.amount)}</div>
                   </div>
-                  <Qr value={redeemLink(item.code)} label={`QR code for voucher ${item.number}`} className="voucher-qr" />
+                  <Qr value={redeemLink(item.code)} label={`QR code for ${item.code}`} className="voucher-qr" />
                 </div>
                 <div>
                   <div className="voucher-code">{item.code}</div>
                   <div className="voucher-foot">
                     <span>Redeem at {SITE_HOST}/redeem</span>
-                    <span>No. {item.number}</span>
                   </div>
                 </div>
               </div>

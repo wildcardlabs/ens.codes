@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from 'react'
 import { type Address, createWalletClient, custom, type EIP1193Provider, numberToHex, type WalletClient } from 'viem'
-import { chain, DEV_WALLET, walletChain } from './config'
+import { chain, DEV_ACCOUNT, DEV_WALLET, walletChain, WALLETCONNECT } from './config'
+import * as wc from './walletconnect'
 
 /** EIP-6963 wallet discovery and the connected wallet, as a small store for React. */
 
 export type WalletInfo = { uuid: string; name: string; icon?: string; rdns?: string }
 export type Discovered = { info: WalletInfo; provider: EIP1193Provider }
-export type Connected = { client: WalletClient; address: Address; name: string; provider: EIP1193Provider }
+export type Connected = { client: WalletClient; address: Address; name: string; provider: EIP1193Provider; walletConnect?: boolean }
 
 type State = {
   wallets: Discovered[]
@@ -14,6 +15,8 @@ type State = {
   connecting: string | null
   /** True while the wallet used last time is being picked up again after a page load. */
   restoring: boolean
+  /** The WalletConnect screen is open: its pairing link once there is one, and why the last try failed. */
+  pairing: { uri: string | null; error: string | null } | null
 }
 
 /**
@@ -24,6 +27,7 @@ type State = {
  */
 const REMEMBERED = 'ens.codes:wallet'
 const idOf = (w: Discovered) => w.info.rdns ?? w.info.name
+const WALLETCONNECT_ID = 'walletconnect'
 function remembered(): string | null {
   try {
     return localStorage.getItem(REMEMBERED)
@@ -40,7 +44,7 @@ function remember(id: string | null) {
   }
 }
 
-let state: State = { wallets: [], connected: null, connecting: null, restoring: typeof window !== 'undefined' && !!remembered() }
+let state: State = { wallets: [], connected: null, connecting: null, restoring: typeof window !== 'undefined' && !!remembered(), pairing: null }
 const listeners = new Set<() => void>()
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch }
@@ -54,8 +58,17 @@ if (typeof window !== 'undefined') {
     set({ wallets: [...state.wallets, detail] })
     if (state.restoring && idOf(detail) === remembered()) void restore(detail)
   })
+  if (remembered() === WALLETCONNECT_ID) {
+    // A WalletConnect session lives in the client's own storage; loading it can take longer than a browser wallet's announcement.
+    if (WALLETCONNECT)
+      wc.resume().then(
+        (s) => s && !state.connected && adoptSession(s),
+        () => {},
+      ).finally(() => set({ restoring: false }))
+    else set({ restoring: false })
+  }
   // The remembered wallet never announced itself (removed or disabled): stop waiting for it.
-  setTimeout(() => state.restoring && set({ restoring: false }), 1500)
+  else setTimeout(() => state.restoring && set({ restoring: false }), 1500)
   if (DEV_WALLET) announceDevWallet()
   window.dispatchEvent(new Event('eip6963:requestProvider'))
 }
@@ -85,8 +98,49 @@ export async function connect(w: Discovered): Promise<void> {
 }
 
 export function disconnect() {
+  if (state.connected?.walletConnect) void wc.endSession()
   remember(null)
   set({ connected: null })
+}
+
+/**
+ * Open the WalletConnect screen and start a session. The screen shows the pairing link (as a QR code,
+ * or as buttons into wallet apps on a phone) and closes once the wallet approves.
+ */
+export async function connectWalletConnect(): Promise<void> {
+  set({ pairing: { uri: null, error: null } })
+  try {
+    const s = await wc.pair((uri) => state.pairing && set({ pairing: { uri, error: null } }))
+    if (!s || !state.pairing) return
+    adoptSession(s)
+    remember(WALLETCONNECT_ID)
+    set({ pairing: null })
+  } catch (err) {
+    const e = err as { message?: string; code?: number }
+    const message = e.code === 5000 || /reject/i.test(e.message ?? '') ? 'You cancelled the request in your wallet.' : (e.message ?? 'Could not connect.')
+    if (state.pairing) set({ pairing: { uri: null, error: message } })
+  }
+}
+
+export function closePairing() {
+  wc.stopPairing()
+  set({ pairing: null })
+}
+
+let watching = false
+function adoptSession(s: wc.Session) {
+  set({ connected: { client: createWalletClient({ account: s.address, chain, transport: custom(s.provider) }), address: s.address, name: s.name, provider: s.provider, walletConnect: true } })
+  if (watching) return
+  watching = true
+  void wc.watchSession((next) => {
+    if (!state.connected?.walletConnect) return
+    if (next) {
+      if (next.address.toLowerCase() !== state.connected.address.toLowerCase()) adoptSession(next)
+      return
+    }
+    remember(null)
+    set({ connected: null })
+  })
 }
 
 /** Pick the remembered wallet up again without a prompt, if it still shares an account and is on this app's chain. */
@@ -204,21 +258,22 @@ function announceDevWallet() {
   let id = 0
   const provider = {
     async request({ method, params }: { method: string; params?: unknown[] }) {
-      if (method === 'eth_requestAccounts') method = 'eth_accounts'
       if (method === 'wallet_switchEthereumChain' || method === 'wallet_addEthereumChain') return null
       const res = await fetch(rpc, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params: params ?? [] }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method: method === 'eth_requestAccounts' ? 'eth_accounts' : method, params: params ?? [] }),
       }).then((r) => r.json())
       if (res.error) throw Object.assign(new Error(res.error.message), res.error)
+      // Only the chosen account is shared, like a real wallet with one account picked.
+      if (method === 'eth_accounts' || method === 'eth_requestAccounts') return (res.result as Address[]).slice(DEV_ACCOUNT, DEV_ACCOUNT + 1)
       return res.result
     },
     on() {},
     removeListener() {},
   } as unknown as EIP1193Provider
   const icon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="#337f5e"/><text x="14" y="19" font-size="13" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="600">A</text></svg>')}`
-  const detail: Discovered = { info: { uuid: 'dev-anvil', name: 'Anvil dev wallet (local)', icon, rdns: 'local.anvil' }, provider }
+  const detail: Discovered = { info: { uuid: 'dev-anvil', name: DEV_ACCOUNT ? `Anvil dev wallet #${DEV_ACCOUNT} (local)` : 'Anvil dev wallet (local)', icon, rdns: 'local.anvil' }, provider }
   const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: Object.freeze(detail) }))
   window.addEventListener('eip6963:requestProvider', announce)
   announce()

@@ -2,8 +2,9 @@
 # Deploys the vault to the local fork, funds test wallets, and writes web/.env.local.
 #
 #   scripts/local-setup.sh [your-wallet-address ...]
+#   DEV_ACCOUNT=3 scripts/local-setup.sh   # the dev wallet uses anvil account 3 instead of 0
 #
-# Anvil's first default account (used by the dev wallet) is always funded.
+# Anvil's first default account and the dev wallet's account are always funded.
 # Every address passed gets 10 ETH and 1,000 USDC.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -41,6 +42,12 @@ RELAYER=$(cast rpc --rpc-url $RPC eth_accounts | tr -d '[]"' | cut -d, -f3)
 cast rpc --rpc-url $RPC anvil_setCode "$RELAYER" 0x >/dev/null
 
 fund "$DEPLOYER"
+DEV_ACCOUNT="${DEV_ACCOUNT:-0}"
+if [ "$DEV_ACCOUNT" != 0 ]; then
+  DEV=$(cast rpc --rpc-url $RPC eth_accounts | tr -d '[]"' | cut -d, -f$((DEV_ACCOUNT + 1)))
+  cast rpc --rpc-url $RPC anvil_setCode "$DEV" 0x >/dev/null
+  fund "$DEV"
+fi
 for a in "$@"; do fund "$a"; done
 
 cat > web/.env.local <<ENV
@@ -49,5 +56,6 @@ VITE_RPC_URL=$RPC
 VITE_VAULT=$VAULT
 VITE_VAULT_DEPLOY_BLOCK=$BLOCK
 VITE_DEV_WALLET=1
+VITE_DEV_ACCOUNT=$DEV_ACCOUNT
 ENV
 echo "Wrote web/.env.local. Run: cd web && npm run dev"

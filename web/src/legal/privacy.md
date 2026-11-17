@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: November 14, 2026
+Last updated: November 16, 2026
 
 This policy explains what Namepass LLC ("Namepass", "we", "us") does with information when you use ens.codes (the "Service").
 
@@ -13,7 +13,7 @@ The Service has no accounts. We do not ask for your name, email address or payme
 - **Redemption requests.** If you redeem a Code without a wallet, your browser sends us the details needed to submit it: the Code's signature, the names to renew and the buying wallet's address. We use the IP address of the request to limit abuse.
 - **Messages.** If you contact us, we receive what you send, including your email address.
 
-Claim codes are generated in your browser and are not sent to our servers.
+Claim codes are generated in your browser and are not sent to our servers. They are made from a passkey you create for the Service. The passkey is kept by your device or password manager; we never receive it or anything derived from it.
 
 ## 2. Cookies and local storage
 
@@ -34,6 +34,7 @@ We do not sell personal information or share it for targeted advertising. Inform
 - **Service providers** that host the site and run its server functions, under obligations to protect it.
 - **Services your browser contacts directly** to make the Service work: blockchain node providers, which receive your IP address and the addresses being looked up; an ENS profile service, which receives your wallet address to return your ENS name and avatar; and the host of any avatar image set on your ENS name.
 - **Your wallet provider** and any block explorer you choose to open, which have their own privacy practices.
+- **WalletConnect**, if you connect a wallet through it. Its relay network, run by Reown, carries messages between this site and your wallet and receives your IP address and wallet address. Its wallet directory serves the list and logos of wallets you can choose from.
 - **Legal and safety.** Where required by law or legal process, or to protect our rights, our users or the public.
 - **Business transfers.** In connection with a merger, sale or reorganisation of our business.
 

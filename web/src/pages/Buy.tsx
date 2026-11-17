@@ -7,7 +7,7 @@ import { ActionButton, Eyebrow, FieldLabel, Hint, PageTitle, Rows } from '@/comp
 import { Coin, Seal } from '@/components/ds/stickers'
 import { ExportDialog } from '@/components/ExportCodes'
 import { ShareActions } from '@/components/ShareCode'
-import { useSignExplainer } from '@/components/SignExplainer'
+import { usePasskeyPrompt } from '@/components/PasskeyPrompt'
 import { walletStep, WalletChoices } from '@/components/wallet'
 import { Button } from '@/components/ui/button'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
@@ -15,13 +15,14 @@ import { codeFor, keyForSecret, redeemLink } from '@/lib/code'
 import { publicClient, RENEWERS, SITE_HOST, USDC, VAULT_DEPLOY_BLOCK } from '@/lib/config'
 import { cleanAmount, fmtBalance, fmtDelivered, fmtUsdc, fmtUsdcExact, parseUsdc } from '@/lib/format'
 import { merkleRoot } from '@/lib/merkle'
+import { passkeysAvailable, prfSupport } from '@/lib/passkey'
 import { soldLengths } from '@/lib/pricing'
 import { errorMessage } from '@/lib/util'
 import { celebrate } from '@/lib/celebrate'
 import { cn } from '@/lib/utils'
 import { batchId, createCodes, maxBatch, maxCodeAmount, protocolFee, purchasesBy, readBatch, usdcBalance } from '@/lib/vault'
 import { sameAccount, useWallet } from '@/lib/wallet'
-import { isUnlocked, unlockCodes, walletSecret } from '@/lib/walletCodes'
+import { forget, masterOf, rebuilds, walletSecret } from '@/lib/walletCodes'
 
 const PRESETS = ['5', '10', '25', '50']
 const MIN_AMOUNT = 1_000_000n
@@ -36,8 +37,7 @@ function fromUrl(key: string, fallback: string, ok: RegExp): string {
 const DEFAULT_AMOUNT = '10'
 const DEFAULT_QTY = '1'
 
-/** `first` is the wallet's code number of the first code: the number My codes shows for it. */
-type Done = { codes: string[]; amount: bigint; first: number }
+type Done = { codes: string[]; amount: bigint }
 
 export default function Buy({ go }: { go: Go }) {
   const { connected, wallets, restoring } = useWallet()
@@ -54,7 +54,9 @@ export default function Buy({ go }: { go: Go }) {
   const [stage, setStage] = useState<string | null>(null)
   const [done, setDone] = useState<Done | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const explainer = useSignExplainer()
+  const passkey = usePasskeyPrompt()
+  /** False where this browser's passkeys can't keep codes: buying is blocked there. */
+  const [canKeep, setCanKeep] = useState<boolean | null>(null)
 
   // The prefill is used once. Left in the address, a reload would bring back that amount or quantity
   // over whatever was chosen since, including after a purchase.
@@ -66,6 +68,7 @@ export default function Buy({ go }: { go: Go }) {
     maxBatch().then((n) => setMaxQty(Number(n)), () => {})
     protocolFee().then(setFee, () => {})
     getPricing(publicClient, { token: USDC, renewers: RENEWERS }).then(setPricing, () => {})
+    prfSupport().then((ok) => setCanKeep(ok !== false), () => {})
   }, [])
   useEffect(() => {
     setBalance(null)
@@ -94,17 +97,21 @@ export default function Buy({ go }: { go: Go }) {
   async function buy() {
     if (!connected || !amount || qty < 1) return
     setNotice(null)
-    // Say why before the wallet asks. Skipped when this visit already unlocked the codes.
-    if (!isUnlocked(connected.address) && !(await explainer.ask('buy'))) return
+    // The passkey once per visit unlocks this wallet's codes; code #i comes from it.
+    const master = masterOf(connected.address) ?? (await passkey.ask('buy', connected.address))
+    if (!master) return
     let root: ReturnType<typeof merkleRoot> | null = null
     try {
       await sameAccount(connected)
-      // One signature per visit unlocks this wallet's codes; code #i comes from it.
-      setStage('Sign in your wallet to unlock your codes…')
-      const master = await unlockCodes(connected.client, connected.address)
       setStage('Preparing your codes…')
       // Next code numbers follow the codes this wallet has already bought.
-      const start = (await purchasesBy(connected.address, VAULT_DEPLOY_BLOCK)).reduce((n, p) => n + p.count, 0)
+      const before = await purchasesBy(connected.address, VAULT_DEPLOY_BLOCK)
+      // A wallet's codes all come from one passkey. Another one would make codes My codes can't show.
+      if (before.length && !rebuilds(master, before[0], 0)) {
+        forget(connected.address)
+        throw new Error('This isn’t the passkey you bought with before using this wallet. Try again and pick that one.')
+      }
+      const start = before.reduce((n, p) => n + p.count, 0)
       const secrets = Array.from({ length: qty }, (_, i) => walletSecret(master, start + i))
       // Only the addresses of the codes' keys go onchain, committed together as one purchase.
       const addresses = secrets.map((s) => keyForSecret(s).address)
@@ -112,7 +119,7 @@ export default function Buy({ go }: { go: Go }) {
       const { block } = await createCodes(connected.client, connected.address, addresses, amount, setStage)
       // A code ends with the block it was bought in, so it can be found again without a search.
       const where = Number(block - VAULT_DEPLOY_BLOCK)
-      setDone({ codes: secrets.map((s) => codeFor(s, where)), amount, first: start + 1 })
+      setDone({ codes: secrets.map((s) => codeFor(s, where)), amount })
     } catch (err) {
       // The purchase may have landed even if the page saw an error.
       const made = root ? await readBatch(batchId(connected.address, root)).catch(() => null) : null
@@ -132,6 +139,8 @@ export default function Buy({ go }: { go: Go }) {
     if (qty > maxQty) return { label: `Up to ${maxQty} codes per purchase` }
     // The form works logged out; the wallet is asked for only when there is something to pay.
     // Drawn at build time no wallets have been looked for yet, so it can't say none were found.
+    // Codes are kept with a passkey, so a browser without working passkeys can't buy.
+    if (typeof window !== 'undefined' && (!passkeysAvailable() || canKeep === false)) return { label: 'Passkeys don’t work here' }
     if (!connected) return restoring || typeof window === 'undefined' ? { label: 'Connect wallet' } : walletStep(wallets, setChoosing, setNotice)
     if (short) return { label: 'Not enough USDC in this wallet' }
     return { label: qty > 1 ? `Buy ${qty} codes · ${fmtUsdc(total!)}` : `Buy ${fmtUsdc(amount)} claim code · ${fmtUsdc(total!)}`, action: () => void buy() }
@@ -150,7 +159,7 @@ export default function Buy({ go }: { go: Go }) {
 
   return (
     <>
-      {explainer.dialog}
+      {passkey.dialog}
       <PageTitle title="Buy a claim code." />
       {/* Wide screens: the ticket and the receipt share a row and a height; the controls sit under the ticket. */}
       <div className="grid gap-x-14 gap-y-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -259,6 +268,12 @@ export default function Buy({ go }: { go: Go }) {
           {balance !== null && <p className={cn('mt-1 text-right text-[13px]', short ? 'text-red' : 'text-caption')}>USDC balance {fmtBalance(balance)}</p>}
 
           <ActionButton {...button} />
+          {typeof window !== 'undefined' && (!passkeysAvailable() || canKeep === false) && (
+            <p className="mt-3 text-[13px] leading-5 text-caption">
+              Your codes are kept with a passkey, and this browser’s passkeys can’t do that. Open {SITE_HOST} in Safari or Chrome to buy; your wallet can
+              still pay from there.
+            </p>
+          )}
           {choosing && !connected && <WalletChoices onError={setNotice} className="mt-3" />}
           {notice && (
             <p role="alert" className="mt-3 text-[13px] text-red">
@@ -359,7 +374,7 @@ function BatchReady({ done, onAnother, go }: { done: Done; onAnother: () => void
   const [exporting, setExporting] = useState(false)
   useEffect(celebrate, [])
   const n = done.codes.length
-  const scopes = useMemo(() => [{ key: 'all', label: 'All', items: done.codes.map((code, i) => ({ number: done.first + i, code, amount: done.amount })) }], [done])
+  const scopes = useMemo(() => [{ key: 'all', label: 'All', items: done.codes.map((code) => ({ code, amount: done.amount })) }], [done])
 
   return (
     <div className={COLUMNS}>
@@ -382,12 +397,11 @@ function BatchReady({ done, onAnother, go }: { done: Done; onAnother: () => void
           <ol className="fragment max-h-[360px] overflow-auto lg:absolute lg:inset-x-0 lg:top-0 lg:max-h-full print:static print:max-h-none print:overflow-visible">
             {done.codes.map((c, i) => (
               <li key={c} className={cn('flex items-center gap-3 px-3 py-2', i > 0 && 'border-t border-rule')}>
-                <span className="w-7 shrink-0 text-right text-[12px] tabular-nums text-caption">{done.first + i}</span>
                 <span className="t-code min-w-0 flex-1 text-[13px] text-foreground">{c}</span>
-                <Button variant="ghost" size="icon-sm" className="no-print" aria-label={`Copy code ${done.first + i}`} onClick={() => void copy(c)}>
+                <Button variant="ghost" size="icon-sm" className="no-print" aria-label={`Copy code ${i + 1}`} onClick={() => void copy(c)}>
                   <CopyIcon done={copied === c} />
                 </Button>
-                <Button variant="ghost" size="icon-sm" className="no-print" aria-label={`Copy redeem link ${done.first + i}`} onClick={() => void copy(redeemLink(c))}>
+                <Button variant="ghost" size="icon-sm" className="no-print" aria-label={`Copy redeem link ${i + 1}`} onClick={() => void copy(redeemLink(c))}>
                   {copied === redeemLink(c) ? <Check aria-hidden="true" /> : <Link2 aria-hidden="true" />}
                 </Button>
               </li>

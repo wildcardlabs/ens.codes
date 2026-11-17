@@ -1,16 +1,14 @@
 import { redeemLink } from './code'
-import { ticketPngBytes } from './share'
+import { ticketName, ticketPngBytes } from './share'
 
 /**
  * Taking many codes out of the page at once: a spreadsheet, or a ZIP of ticket pictures. The
  * printable vouchers are a print layout (see `ExportCodes.tsx`), not a file made here.
  *
- * Every export carries the code's number, the same one My codes shows, so a printed card or a
- * picture can be matched to its row later (to cancel a lost one, say).
+ * Exports carry the codes themselves and no row numbers: those belong to the My codes table, where
+ * a code can be found again by searching for it.
  */
 export type ExportItem = {
-  /** This wallet's code number: 1 for the first code it ever bought. */
-  number: number
   code: string
   amount: bigint
   /** My codes knows these; a fresh purchase doesn't need them. */
@@ -31,7 +29,6 @@ const cell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
 /** One row per code. Columns that no code has a value for are left out. */
 export function csvOf(items: ExportItem[]): string {
   const cols: [string, (i: ExportItem) => string][] = [
-    ['number', (i) => String(i.number)],
     ['code', (i) => i.code],
     ['redeem_link', (i) => redeemLink(i.code)],
     ['amount_usdc', (i) => plain(i.amount)],
@@ -42,18 +39,20 @@ export function csvOf(items: ExportItem[]): string {
   return [cols.map(([name]) => name), ...items.map((i) => cols.map(([, get]) => cell(get(i))))].map((r) => r.join(',')).join('\n')
 }
 
-/** "037" when the largest number has three digits: files then sort in order in any folder view. */
-export function padded(number: number, items: ExportItem[]): string {
-  const width = Math.max(3, String(items.reduce((m, i) => Math.max(m, i.number), 0)).length)
-  return String(number).padStart(width, '0')
+/** Two codes can start with the same five characters: the second picture then gets a suffix. */
+function uniqueName(name: string, files: ZipFile[]): string {
+  const taken = new Set(files.map((f) => f.name))
+  let out = name
+  for (let n = 2; taken.has(out); n++) out = name.replace(/\.png$/, `-${n}.png`)
+  return out
 }
 
-/** One picture per code, named by its number, plus the spreadsheet that says which is which. */
+/** One picture per code, named by the code's first characters, plus the spreadsheet of them all. */
 export async function imagesZip(items: ExportItem[], onProgress: (done: number) => void): Promise<Blob> {
   const files: ZipFile[] = [{ name: 'ens-codes.csv', bytes: new TextEncoder().encode(csvOf(items)) }]
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
-    files.push({ name: `ens-code-${padded(item.number, items)}.png`, bytes: await ticketPngBytes(item.code, item.amount, item.number) })
+    files.push({ name: uniqueName(ticketName(item.code), files), bytes: await ticketPngBytes(item.code, item.amount) })
     onProgress(i + 1)
     // Let the page repaint between pictures, so the progress text moves.
     await new Promise((r) => setTimeout(r))
