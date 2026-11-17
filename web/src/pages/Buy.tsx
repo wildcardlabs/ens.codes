@@ -173,7 +173,7 @@ export default function Buy({ go }: { go: Go }) {
       {otherPasskey.dialog}
       <PageTitle title="Buy a claim code." />
       {/* Wide screens: the ticket and the receipt share a row and a height; the controls sit under the ticket. */}
-      <div className="grid gap-x-14 gap-y-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-14 gap-y-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         {/* The ticket is the form: what you fill in is what the recipient gets. */}
         <section className="lg:col-start-1 lg:row-start-1" aria-busy={!!stage}>
           <CodeTicket

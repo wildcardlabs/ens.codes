@@ -165,12 +165,21 @@ export function Rows({ rows, className }: { rows: [ReactNode, ReactNode][]; clas
   )
 }
 
-/** The big action at the bottom of a form: a black pill, or a spinner with the current step. */
+/**
+ * The big action at the bottom of a form: a black pill, or a spinner with the current step. A step
+ * can be a long instruction ("Approve the USDC payment in your wallet…"), so the label wraps rather
+ * than widening the button, which on a phone would widen the whole page.
+ */
 export function ActionButton({ label, action, busy, className }: { label: string; action?: () => void; busy?: boolean; className?: string }) {
   return (
-    <Button size="lg" className={cn('mt-5 w-full justify-center px-6', className)} disabled={!action || busy} onClick={action}>
+    <Button
+      size="lg"
+      className={cn('mt-5 h-auto min-h-12 w-full min-w-0 justify-center px-6 py-3 whitespace-normal', className)}
+      disabled={!action || busy}
+      onClick={action}
+    >
       {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 text-center leading-[22px] text-balance">{label}</span>
     </Button>
   )
 }

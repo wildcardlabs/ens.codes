@@ -73,12 +73,16 @@ function accountsOf(p: UniversalProvider): Address[] {
   return [...new Set(all.filter((a) => a.startsWith(`${CAIP}:`)).map((a) => a.slice(CAIP.length + 1) as Address))]
 }
 
-/** After a request goes out on a phone, bring the wallet app forward so the person sees it. */
+/**
+ * After a request goes out on a phone, bring the wallet app forward so the person sees it. Only the
+ * wallet's own app link (`somewallet://`) is used. A web link (`https://…`) is never followed: Android
+ * asks whether the browser or an app should open it, and if the browser does, this page is left
+ * behind mid-purchase. Without an app link the person switches to the wallet themselves.
+ */
 function openWallet(p: UniversalProvider) {
   if (!isMobile()) return
-  const redirect = p.session?.peer.metadata.redirect
-  const link = redirect?.native || redirect?.universal
-  if (link) window.location.href = link
+  const native = p.session?.peer.metadata.redirect?.native
+  if (native && !/^(https?|javascript|data):/i.test(native.trim())) window.location.href = native
 }
 
 export type Session = { provider: EIP1193Provider; address: Address; name: string; icon?: string }
