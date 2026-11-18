@@ -108,6 +108,14 @@ to the buyer.
 
 <br>
 
+## Security
+
+| Review | Critical | High | Medium | Low | Report |
+| :-- | :-: | :-: | :-: | :-: | :-- |
+| ClaimCodeVault, November 2026 | 0 | 0 | 1 (resolved) | 3 (resolved) | [PDF](audits/2026-11-ens-codes-security-review.pdf) |
+
+<br>
+
 ## Run it locally
 
 You need [Foundry](https://book.getfoundry.sh/) and Node 22 or later. The local setup forks mainnet,
