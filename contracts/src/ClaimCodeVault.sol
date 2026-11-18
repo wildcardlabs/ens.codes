@@ -144,11 +144,11 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     error BadCodeSignature();
     error SignatureExpired();
     error NotRenewer();
+    error AlreadyRenewer();
     error WrongRelayer();
     error BadRenewals();
     error InsufficientBalance();
     error Overspent();
-    error NothingToCancel();
     error RenewerNotReady();
     error BadBatch();
     error BadFee();
@@ -384,7 +384,8 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The buyer takes back unused codes, at any time, from one or more of their purchases,
     /// refunded in one transfer. The codes stop working. Codes used in the meantime (for example a
-    /// recipient redeemed one while this was pending) are skipped rather than failing the call.
+    /// recipient redeemed one while this was pending) are skipped rather than failing the call, even
+    /// when that leaves nothing to cancel.
     /// @return cancelled How many codes were cancelled.
     function cancel(Cancel[] calldata items) external nonReentrant returns (uint256 cancelled) {
         if (items.length == 0 || items.length > MAX_BATCH) revert BadBatch();
@@ -405,8 +406,7 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
             total += refund;
             emit Cancelled(id, msg.sender, fresh, refund);
         }
-        if (total == 0) revert NothingToCancel();
-        usdc.safeTransfer(msg.sender, total);
+        if (total > 0) usdc.safeTransfer(msg.sender, total);
     }
 
     function _popcount(uint256 x) internal pure returns (uint256 n) {
@@ -444,8 +444,10 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @notice Start the timelock for a new renewer. It can be activated during `RENEWER_WINDOW`
-    /// after the delay, then the proposal lapses.
+    /// after the delay, then the proposal lapses. An active renewer cannot be proposed, so no
+    /// proposal outlives its removal.
     function proposeRenewer(address renewer) external onlyOwner {
+        if (isRenewer[renewer]) revert AlreadyRenewer();
         uint256 activatesAt = block.timestamp + RENEWER_DELAY;
         pendingRenewers[renewer] = activatesAt;
         emit RenewerProposed(renewer, activatesAt);
@@ -476,6 +478,7 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     function removeRenewer(address renewer) external onlyOwner {
         if (!isRenewer[renewer]) revert NotRenewer();
         delete isRenewer[renewer];
+        delete pendingRenewers[renewer];
         emit RenewerRemoved(renewer);
     }
 

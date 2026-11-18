@@ -738,13 +738,16 @@ contract CancelTest is VaultBase {
         assertEq(usdc.balanceOf(buyer) - before, 200e6);
     }
 
-    function test_cancel_nothingLeftReverts() public {
+    /// Codes used meanwhile are skipped even when nothing is left: the call succeeds and pays nothing.
+    function test_cancel_nothingLeftSkips() public {
         vm.startPrank(buyer);
         cancelOne(root, type(uint256).max);
-        vm.expectRevert(ClaimCodeVault.NothingToCancel.selector);
-        cancelOne(root, type(uint256).max);
-        vm.expectRevert(ClaimCodeVault.NothingToCancel.selector);
-        cancelOne(root, 0);
+        uint256 before = usdc.balanceOf(buyer);
+        vm.recordLogs();
+        assertEq(cancelOne(root, type(uint256).max), 0);
+        assertEq(cancelOne(root, 0), 0);
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(usdc.balanceOf(buyer), before);
         vm.stopPrank();
     }
 
@@ -933,6 +936,26 @@ contract AdminTest is VaultBase {
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
         vault.removeRenewer(address(renewer2));
+    }
+
+    /// An active renewer cannot be proposed, so removing it leaves no proposal that skips the delay.
+    function test_removeRenewer_needsFreshDelay() public {
+        vm.startPrank(owner);
+        vm.expectRevert(ClaimCodeVault.AlreadyRenewer.selector);
+        vault.proposeRenewer(address(renewer));
+        vault.removeRenewer(address(renewer));
+        assertEq(vault.pendingRenewers(address(renewer)), 0);
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.activateRenewer(address(renewer));
+
+        vault.proposeRenewer(address(renewer));
+        vm.stopPrank();
+        vm.warp(block.timestamp + vault.RENEWER_DELAY() - 1);
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.activateRenewer(address(renewer));
+        vm.warp(block.timestamp + 1);
+        vault.activateRenewer(address(renewer));
+        assertTrue(vault.isRenewer(address(renewer)));
     }
 
     function test_renounceOwnershipReverts() public {

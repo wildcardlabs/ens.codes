@@ -1136,6 +1136,11 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "AlreadyRenewer",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadAmount",
     "inputs": []
   },
@@ -1229,11 +1234,6 @@ export const vaultAbi = [
   {
     "type": "error",
     "name": "NothingOwed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NothingToCancel",
     "inputs": []
   },
   {

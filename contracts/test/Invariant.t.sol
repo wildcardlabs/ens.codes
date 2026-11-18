@@ -105,7 +105,7 @@ contract Handler is Test {
         vault.redeem(r, abi.encodePacked(rr, s, v), proof);
     }
 
-    /// Cancels an arbitrary set of codes in up to two purchases; already-used ones are skipped.
+    /// Cancels an arbitrary set of codes in up to two purchases; already-used ones are skipped, never failing the call.
     function cancel(uint256 a, uint256 maskA, uint256 b, uint256 maskB) external {
         if (purchases.length == 0) return;
         Purchase memory pa = purchases[a % purchases.length];
@@ -114,11 +114,7 @@ contract Handler is Test {
         items[0] = ClaimCodeVault.Cancel(pa.root, maskA);
         items[1] = ClaimCodeVault.Cancel(pb.root, maskB);
         vm.prank(buyer);
-        try vault.cancel(items) {}
-        catch (bytes memory reason) {
-            // The only acceptable failure: every chosen code was already used.
-            assertEq(bytes4(reason), ClaimCodeVault.NothingToCancel.selector);
-        }
+        vault.cancel(items);
     }
 
     function sweep() external {
