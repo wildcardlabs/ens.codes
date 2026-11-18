@@ -26,7 +26,7 @@
 <br>
 
 **ens.codes** turns USDC into claim codes for ENS renewals. Buy a code, hand it to anyone, and
-they use it to renew any `.eth` name, without needing a wallet of their own.
+they use it to renew any `.eth` name.
 
 > [!NOTE]
 > ens.codes is live on the Sepolia testnet ahead of its mainnet launch.
@@ -49,8 +49,8 @@ they use it to renew any `.eth` name, without needing a wallet of their own.
       A code renews up to 5 names in one go. Whatever the renewals don't cost goes back to the buyer.
     </td>
     <td width="50%" valign="top">
-      <h3>No wallet to redeem</h3>
-      Redeeming takes only the code. We cover the network fee.
+      <h3>Any .eth name</h3>
+      A code renews any <code>.eth</code> name, whoever owns it. The person holding it picks the names.
     </td>
   </tr>
   <tr>

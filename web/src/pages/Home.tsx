@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { normalize } from 'viem/ens'
 import type { Go, Page } from '@/App'
 import { CodeTicket } from '@/components/ds/CodeTicket'
-import { Eyebrow, Field, type Hue, Panel, Rows, Rule, SplitBar, StatusPill, TickList, Token, Wrap } from '@/components/ds/primitives'
+import { Eyebrow, Field, type Hue, Panel, Rule, SplitBar, StatusPill, TickList, Token, Wrap } from '@/components/ds/primitives'
 import { Socials } from '@/components/ds/Socials'
 import { Bean, Coin, Key, Spark, Star, Vault } from '@/components/ds/stickers'
 import { EnsMark, Mark, Wordmark, WORDMARK_IN_HEADER } from '@/components/ds/Wordmark'
@@ -14,10 +14,9 @@ import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { format, parse } from '@/lib/code'
 import { EXPLORER_URL, MAX_NAMES, publicClient, RENEWERS, USDC, VAULT } from '@/lib/config'
 import { QUESTIONS } from '@/lib/site'
-import { cleanAmount, fmtDelivered, fmtUsdc, fmtUsdcExact, parseUsdc, truncAddress, YEAR_SECONDS } from '@/lib/format'
+import { cleanAmount, fmtDelivered, fmtUsdc, parseUsdc, truncAddress, YEAR_SECONDS } from '@/lib/format'
 import { soldLengths } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
-import { protocolFee } from '@/lib/vault'
 
 /**
  * The landing page. Every section answers one question a visitor arrives with:
@@ -26,7 +25,6 @@ import { protocolFee } from '@/lib/vault'
  *   Journey     "How does this work?"
  *   Money       "Who holds my money?"
  *   Events      "Does it work for a crowd?"
- *   Costs       "What does it cost?"
  *   Questions   the remaining doubts that stop people
  *   Closing     the same two doors as the hero
  */
@@ -61,8 +59,6 @@ export default function Home({ go, onCode }: { go: Go; onCode: (code: string) =>
           <Money />
           <Rule />
           <Events go={go} />
-          <Rule />
-          <Costs />
           <Rule />
           <Questions />
         </Wrap>
@@ -562,53 +558,6 @@ function Events({ go }: { go: Go }) {
           </div>
         </div>
       </Panel>
-    </section>
-  )
-}
-
-/* ----------------------------------------------------------------- Costs */
-/** Hidden fees are the fear, so the whole bill is shown as what it is: a short receipt. */
-function Costs() {
-  const [fee, setFee] = useState(50_000n)
-  useEffect(() => {
-    if (VAULT) protocolFee().then(setFee, () => {})
-  }, [])
-  const value = 10_000000n
-  return (
-    <section id="costs" className="grid items-stretch gap-10 py-20 mid:grid-cols-2 mid:gap-16 mid:py-24">
-      <Panel className="order-2 grid place-items-center px-5 py-10 mid:order-1">
-        <div className="relative w-full max-w-[300px] -rotate-2">
-          <Coin size={50} className="absolute -right-5 -top-5 z-10 rotate-12" />
-          <div className="rounded-t-md bg-background px-5 pb-4 pt-5">
-            <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-heading">Receipt</p>
-            <Rows
-              className="mt-3 border-t border-dashed border-rule pt-3 [&_dd]:font-normal"
-              rows={[
-                ['Code value', fmtUsdcExact(value)],
-                ['Service fee', fmtUsdcExact(fee)],
-                ['Network fee', 'a few cents'],
-              ]}
-            />
-            <div className="mt-3 flex items-center justify-between border-t border-dashed border-rule pt-3 text-[15px] font-semibold text-foreground">
-              <span>You pay</span>
-              <span>{fmtUsdcExact(value + fee)} + network</span>
-            </div>
-          </div>
-          {/* The torn edge. */}
-          <svg className="block h-2.5 w-full text-background" aria-hidden="true">
-            <defs>
-              <pattern id="torn" width="14" height="10" patternUnits="userSpaceOnUse">
-                <path d="M0 0h14L7 10z" fill="currentColor" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="10" fill="url(#torn)" />
-          </svg>
-        </div>
-      </Panel>
-      <div className="order-1 self-center mid:order-2">
-        <SectionHead hue="purple" eyebrow="What it costs" title="The whole bill fits on a receipt." lede={`A flat ${fmtUsdcExact(fee)} per code. A $10 code renews $10 of ENS.`} />
-        <TickList hue="purple" items={['No percentage cut', 'No subscription', 'No fee to redeem']} className="mt-7" />
-      </div>
     </section>
   )
 }

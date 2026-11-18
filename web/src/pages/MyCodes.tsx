@@ -354,7 +354,7 @@ export default function MyCodes({ go }: { go: Go }) {
   /** Selected codes in the view (any status), and the ones among them that can be cancelled. */
   const chosen = view.filter((r) => selected.has(r.id))
   const picked = chosen.filter(unused)
-  /** Codes no passkey used so far has shown: made with another one, or before passkeys. */
+  /** Codes no passkey used so far has shown: made with another one. */
   const hidden = codes && rows ? rows.filter((r) => !codes.has(r.id)).length : 0
   /** A row as it goes into an export. Codes this wallet can't reproduce are left out. */
   const toItems = (list: Row[]): ExportItem[] =>
@@ -529,7 +529,7 @@ export default function MyCodes({ go }: { go: Go }) {
         {error && <p className="mx-4 my-3 rounded-md bg-card px-3 py-2 text-[14px] text-red">{error}</p>}
         {codes && rows && hidden > 0 && (
           <p className="mx-4 my-3 rounded-md bg-card px-3 py-2 text-[14px] leading-5 text-body">
-            {hidden === 1 ? '1 code was' : `${hidden} codes were`} made with another passkey, or before passkeys, so {hidden === 1 ? 'it stays' : 'they stay'}{' '}
+            {hidden === 1 ? '1 code was' : `${hidden} codes were`} made with another passkey, so {hidden === 1 ? 'it stays' : 'they stay'}{' '}
             hidden. You can still cancel {hidden === 1 ? 'it' : 'them'}.{' '}
             <button type="button" className="t-link font-medium" disabled={unlocking} onClick={() => void showCodes('view', true)}>
               Use another passkey

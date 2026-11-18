@@ -14,7 +14,7 @@ export const X_URL = `https://x.com/${X_HANDLE}`
 export type PageKey = 'home' | 'buy' | 'redeem' | 'codes' | 'dashboard' | 'terms' | 'privacy'
 export type PageMeta = { path: string; title: string; description: string; /** False: kept out of search results. */ index: boolean }
 
-const ABOUT = 'Buy a claim code with USDC and hand it to anyone. They redeem it to renew any .eth name, no wallet needed. A code only ever pays for ENS renewals.'
+const ABOUT = 'Buy a claim code with USDC and hand it to anyone. They redeem it to renew any .eth name. A code only ever pays for ENS renewals.'
 
 export const PAGES: Record<PageKey, PageMeta> = {
   home: { path: '/', title: `Claim codes for ENS renewals | ${SITE_NAME}`, description: ABOUT, index: true },
@@ -39,10 +39,10 @@ export const PAGES: Record<PageKey, PageMeta> = {
 /** The landing page's questions, also given to search engines as they are. */
 export const QUESTIONS: [string, string][] = [
   ['Who can use a code?', 'Anyone who has it, once. It can only pay for ENS renewals.'],
-  ['Can I see my codes again later?', 'Yes. Log in with the wallet you paid with and they’re all in My codes.'],
+  ['What does it cost?', 'The code’s value plus a flat $0.05 service fee. A $10 code pays for $10 of renewals.'],
+  ['Can I see my codes again later?', 'Yes. Connect the wallet you paid with and unlock them in My codes with your passkey.'],
   ['Does a code expire?', 'No.'],
   ['Can I get my money back?', 'Yes, if the code hasn’t been used. The service fee isn’t refunded.'],
-  ['Which wallets work?', 'Browser wallets such as MetaMask and Rabby, including with a Ledger or Trezor.'],
 ]
 
 export const urlOf = (page: PageMeta) => SITE_URL + (page.path === '/' ? '/' : page.path)
