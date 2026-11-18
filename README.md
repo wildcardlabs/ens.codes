@@ -113,7 +113,7 @@ to the buyer.
 | Review | Critical | High | Medium | Low | Report |
 | :-- | :-: | :-: | :-: | :-: | :-- |
 | ClaimCodeVault, November 2026 | 0 | 0 | 1 (resolved) | 3 (resolved) | [PDF](audits/2026-11-ens-codes-security-review.pdf) |
-| AuditAgent scan #3, November 2026 | 0 | 0 | 1 (resolved) | 1 (resolved) | [PDF](audits/2026-11-auditagent-scan-3.pdf) |
+| AuditAgent scan, November 2026 | 0 | 0 | 1 (resolved) | 1 (resolved) | [PDF](audits/2026-11-auditagent-scan.pdf) |
 
 <br>
 
