@@ -63,6 +63,16 @@ they use it to renew any `.eth` name.
       Holding a code lets you spend it, but its value stays with the buyer until it's used. The buyer can cancel an unused code at any time, and codes don't expire.
     </td>
   </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Kept with a passkey</h3>
+      Codes are made from a passkey on your device, not kept on a server. To see them again, connect the wallet you paid with and unlock them with the same passkey.
+    </td>
+    <td width="50%" valign="top">
+      <h3>Browser or phone wallet</h3>
+      Pay from a browser wallet, or from a phone wallet over WalletConnect. Wallets that batch transactions approve USDC and buy in one step.
+    </td>
+  </tr>
 </table>
 
 > [!NOTE]
@@ -93,7 +103,7 @@ to the buyer.
 | :-- | :-- |
 | **Site**: buy, redeem and manage codes | [`web/`](web) |
 | **Vault**: `ClaimCodeVault`, the contract that holds and spends codes | [`contracts/`](contracts) |
-| **Relayer**: sends redemptions for people without a wallet | [`api/`](api) |
+| **Relayer**: sends redemptions when we cover the network fee | [`api/`](api) |
 | **Pricing**: the longest renewal a budget buys | [`ens-budget`](https://github.com/wildcardlabs/ens-budget) |
 
 <br>

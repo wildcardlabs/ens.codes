@@ -192,7 +192,7 @@ function Stack() {
         <Card art={<Ticky size={52} />} title="The site" body="Prices the names and signs with the code." />
       </div>
       <div className="absolute left-[362px] top-[72px] w-[258px]">
-        <Card art={<Seal size={46} />} title="Relayer" body="Sends it for people without a wallet." />
+        <Card art={<Seal size={46} />} title="Relayer" body="Sends it when we cover the fee." />
       </div>
       <div className="absolute left-[362px] top-[302px] w-[258px]">
         <Card art={<Key size={50} className="-rotate-12" />} title="A wallet" body="Or sends it directly." />
