@@ -9,8 +9,10 @@ import {ClaimCodeVault} from "../src/ClaimCodeVault.sol";
 ///
 ///   forge script script/Deploy.s.sol --rpc-url <url> --broadcast [--account <keystore>]
 ///
-/// Required env: FEE_RECIPIENT, the address collected protocol fees are swept to (fixed for this deployment).
-/// Optional env: OWNER (default: deployer), MAX_CODE_AMOUNT in USDC units (default 500000000, 500 USDC),
+/// Required env: OWNER, the vault's owner, and FEE_RECIPIENT, the address collected protocol fees are
+/// swept to (fixed for this deployment). Both are required so neither can fall back to whatever sender
+/// forge happens to use.
+/// Optional env: MAX_CODE_AMOUNT in USDC units (default 500000000, 500 USDC),
 /// REFERRER (bytes32, default: FEE_RECIPIENT as an address in the low 20 bytes, the form ENS referral
 /// programs read).
 /// The protocol fee itself is fixed in the contract: 0.05 USDC per code.
@@ -30,9 +32,14 @@ contract Deploy is Script {
         );
         uint96 maxCode = uint96(maxCodeAmount);
 
-        vm.startBroadcast();
-        address owner = vm.envOr("OWNER", msg.sender);
+        // Renewers are trusted from the start, so an address with no contract there must stop the deploy.
+        require(usdc.code.length > 0, "no contract at the USDC address");
+        require(registrar.code.length > 0, "no contract at the ETHRegistrar address");
+        require(renewerV1.code.length > 0, "no contract at the ETHRenewerV1 address");
+
+        address owner = vm.envAddress("OWNER");
         address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+        vm.startBroadcast();
         bytes32 referrer = vm.envOr("REFERRER", bytes32(uint256(uint160(feeRecipient))));
         vault = new ClaimCodeVault(IERC20(usdc), renewers, referrer, maxCode, owner, feeRecipient);
         vm.stopBroadcast();

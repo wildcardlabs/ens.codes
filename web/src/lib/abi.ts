@@ -93,6 +93,19 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "RENEWER_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -193,6 +206,26 @@ export const vaultAbi = [
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelRenewer",
+    "inputs": [
+      {
+        "name": "renewer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimRefund",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -655,10 +688,42 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "refundsOwed",
+    "inputs": [
+      {
+        "name": "buyer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "removeRenewer",
+    "inputs": [
+      {
+        "name": "renewer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -969,7 +1034,58 @@ export const vaultAbi = [
   },
   {
     "type": "event",
+    "name": "RefundClaimed",
+    "inputs": [
+      {
+        "name": "buyer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RefundOwed",
+    "inputs": [
+      {
+        "name": "buyer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RenewerAdded",
+    "inputs": [
+      {
+        "name": "renewer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RenewerCancelled",
     "inputs": [
       {
         "name": "renewer",
@@ -995,6 +1111,19 @@ export const vaultAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RenewerRemoved",
+    "inputs": [
+      {
+        "name": "renewer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1038,6 +1167,11 @@ export const vaultAbi = [
   {
     "type": "error",
     "name": "BatchExists",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CannotRenounce",
     "inputs": []
   },
   {
@@ -1090,6 +1224,11 @@ export const vaultAbi = [
   {
     "type": "error",
     "name": "NotRenewer",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingOwed",
     "inputs": []
   },
   {

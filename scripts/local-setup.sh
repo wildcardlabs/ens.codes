@@ -18,7 +18,7 @@ cast chain-id --rpc-url $RPC >/dev/null || { echo "Start the fork first: scripts
 echo "Deploying vault from $DEPLOYER…"
 FEE_RECIPIENT="${FEE_RECIPIENT:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}" # anvil account 1
 echo "Protocol fees go to $FEE_RECIPIENT"
-OUT=$(cd contracts && FEE_RECIPIENT=$FEE_RECIPIENT forge script script/Deploy.s.sol --rpc-url $RPC --unlocked --sender "$DEPLOYER" --broadcast 2>&1)
+OUT=$(cd contracts && OWNER="${OWNER:-$DEPLOYER}" FEE_RECIPIENT=$FEE_RECIPIENT forge script script/Deploy.s.sol --rpc-url $RPC --unlocked --sender "$DEPLOYER" --broadcast 2>&1)
 VAULT=$(echo "$OUT" | awk '$1 == "ClaimCodeVault" {print $2}' | tail -1)
 BLOCK=$(echo "$OUT" | awk '/deploy block/ {print $3}' | tail -1)
 [ -n "$VAULT" ] || { echo "$OUT"; exit 1; }

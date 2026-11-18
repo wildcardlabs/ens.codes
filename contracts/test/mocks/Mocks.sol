@@ -16,6 +16,18 @@ contract MockUSDC is ERC20, ERC20Permit {
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
+
+    /// Like USDC's blacklist: a blocked address can't receive.
+    mapping(address => bool) public blocked;
+
+    function setBlocked(address who, bool on) external {
+        blocked[who] = on;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        require(!blocked[to], "Blacklistable: account is blacklisted");
+        super._update(from, to, value);
+    }
 }
 
 /// Prices every second at `rate` token units and pulls exactly the total price of a batch.

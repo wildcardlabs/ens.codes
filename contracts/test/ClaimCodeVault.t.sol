@@ -611,6 +611,58 @@ contract RedeemTest is VaultBase {
         assertEq(usdc.allowance(address(vault), address(cheap)), 0);
     }
 
+    /// USDC blocks the buyer: the holder still redeems, and the leftover is kept for the buyer.
+    function test_redeem_blockedBuyerStillRedeems() public {
+        usdc.setBlocked(buyer, true);
+        ClaimCodeVault.Redeem memory r = redeemMsg(root, 0, one("namepass", 100 days));
+        r.maxAmount = 50e6;
+        uint256 refund = 50e6 - 100 days;
+        vm.expectEmit(address(vault));
+        emit ClaimCodeVault.RefundOwed(buyer, refund);
+        vault.redeem(r, signRedeem(CODE_PK, r), proofOf(0));
+        assertEq(usdc.balanceOf(address(renewer)), 100 days);
+        assertEq(vault.refundsOwed(buyer), refund);
+        assertEq(usdc.balanceOf(address(vault)), 6 * 50e6 + 7 * FEE + refund);
+
+        // Still blocked: the claim fails and the balance stays.
+        vm.prank(buyer);
+        vm.expectRevert();
+        vault.claimRefund();
+        assertEq(vault.refundsOwed(buyer), refund);
+
+        // Unblocked: the buyer takes it, once.
+        usdc.setBlocked(buyer, false);
+        uint256 before = usdc.balanceOf(buyer);
+        vm.prank(buyer);
+        vault.claimRefund();
+        assertEq(usdc.balanceOf(buyer) - before, refund);
+        assertEq(vault.refundsOwed(buyer), 0);
+        vm.prank(buyer);
+        vm.expectRevert(ClaimCodeVault.NothingOwed.selector);
+        vault.claimRefund();
+    }
+
+    function test_claimRefund_nothingOwed() public {
+        vm.prank(recipient);
+        vm.expectRevert(ClaimCodeVault.NothingOwed.selector);
+        vault.claimRefund();
+    }
+
+    /// A renewer that pulls less than its allowance is left with none after the call.
+    function test_redeem_allowanceAlwaysCleared() public {
+        ClaimCodeVault.Redeem memory r = redeemMsg(root, 0, one("namepass", 100 days));
+        vault.redeem(r, signRedeem(CODE_PK, r), proofOf(0));
+        assertEq(usdc.allowance(address(vault), address(renewer)), 0);
+    }
+
+    function test_isUsed_unknownCodeReverts() public {
+        assertFalse(vault.isUsed(id, 6));
+        vm.expectRevert(ClaimCodeVault.UnknownCode.selector);
+        vault.isUsed(id, 7);
+        vm.expectRevert(ClaimCodeVault.UnknownCode.selector);
+        vault.isUsed(bytes32(uint256(1)), 0);
+    }
+
     function test_redeem_reentrancyReverts() public {
         ReentrantRenewer evil = new ReentrantRenewer(IERC20(address(usdc)), 1);
         addRenewer(address(evil));
@@ -838,6 +890,56 @@ contract AdminTest is VaultBase {
         address[] memory codes = codesFrom(CODE_PK, 1);
         vm.prank(buyer);
         vault.create(codes, 1000e6);
+    }
+
+    function test_renewerProposalLapses() public {
+        address r = address(new MockRenewer(IERC20(address(usdc)), 1));
+        vm.prank(owner);
+        vault.proposeRenewer(r);
+        vm.warp(block.timestamp + vault.RENEWER_DELAY() + vault.RENEWER_WINDOW());
+        vault.activateRenewer(r); // last second of the window
+        assertTrue(vault.isRenewer(r));
+
+        address late = address(new MockRenewer(IERC20(address(usdc)), 1));
+        vm.prank(owner);
+        vault.proposeRenewer(late);
+        vm.warp(block.timestamp + vault.RENEWER_DELAY() + vault.RENEWER_WINDOW() + 1);
+        vm.expectRevert(ClaimCodeVault.RenewerNotReady.selector);
+        vault.activateRenewer(late);
+        assertFalse(vault.isRenewer(late));
+    }
+
+    function test_removeRenewer() public {
+        (address[] memory codes, bytes32 root,) = buy(1, 50e6);
+        vm.expectEmit(address(vault));
+        emit ClaimCodeVault.RenewerRemoved(address(renewer));
+        vm.prank(owner);
+        vault.removeRenewer(address(renewer));
+        assertFalse(vault.isRenewer(address(renewer)));
+
+        // A redemption through it now fails; the code is untouched and the other renewer still works.
+        ClaimCodeVault.Redeem memory r = redeemMsg(root, 0, one("namepass", 100 days));
+        bytes memory sig = signRedeem(CODE_PK, r);
+        bytes32[] memory proof = new bytes32[](0);
+        vm.expectRevert(ClaimCodeVault.NotRenewer.selector);
+        vault.redeem(r, sig, proof);
+        r.renewals[0].renewer = address(renewer2);
+        vault.redeem(r, signRedeem(CODE_PK, r), proof);
+        assertEq(codes.length, 1);
+
+        vm.prank(owner);
+        vm.expectRevert(ClaimCodeVault.NotRenewer.selector);
+        vault.removeRenewer(address(renewer));
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
+        vault.removeRenewer(address(renewer2));
+    }
+
+    function test_renounceOwnershipReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(ClaimCodeVault.CannotRenounce.selector);
+        vault.renounceOwnership();
+        assertEq(vault.owner(), owner);
     }
 
     function test_twoStepOwnership() public {

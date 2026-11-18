@@ -36,7 +36,7 @@ interface IETHRenewer {
 ///
 /// A code has two states. Unused: the money is still the buyer's, who may cancel it at any time.
 /// Used: it holds nothing. There is no expiry and no partial balance: whatever a redemption does not
-/// spend goes back to the buyer in the same transaction.
+/// spend goes back to the buyer in the same transaction, or is kept for them if it can't be sent.
 contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
@@ -90,6 +90,8 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Wait between proposing a renewer and it becoming usable.
     uint256 public constant RENEWER_DELAY = 2 days;
+    /// @notice How long after its delay a proposal can still be activated. After that it lapses.
+    uint256 public constant RENEWER_WINDOW = 7 days;
     /// @notice Most codes in one purchase. A purchase's used bits share its storage slot.
     uint256 public constant MAX_BATCH = 200;
     /// @notice Most names one code can renew.
@@ -110,6 +112,8 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     mapping(bytes32 id => Batch) public batches;
     mapping(address renewer => bool) public isRenewer;
     mapping(address renewer => uint256 activatesAt) public pendingRenewers;
+    /// @notice Redemption leftovers that could not be sent to a buyer, kept for the buyer to claim.
+    mapping(address buyer => uint256) public refundsOwed;
 
     event Created(bytes32 indexed id, address indexed buyer, uint256 amount, uint256 count, bytes32 root);
     /// @notice One per code in a purchase, so a code can be found by its address alone.
@@ -120,10 +124,14 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     );
     /// @param mask The codes cancelled by this call, one bit each.
     event Cancelled(bytes32 indexed id, address indexed buyer, uint256 mask, uint256 refunded);
+    /// @notice A redemption's leftover could not be sent to the buyer and is kept for them instead.
+    event RefundOwed(address indexed buyer, uint256 amount);
+    event RefundClaimed(address indexed buyer, uint256 amount);
     event FeesSwept(address indexed to, uint256 amount);
     event RenewerProposed(address indexed renewer, uint256 activatesAt);
     event RenewerAdded(address indexed renewer);
     event RenewerCancelled(address indexed renewer);
+    event RenewerRemoved(address indexed renewer);
     event MaxCodeAmountSet(uint96 amount);
     event Paused();
     event Unpaused();
@@ -146,6 +154,8 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     error BadFee();
     error IsPaused();
     error NothingToSweep();
+    error NothingOwed();
+    error CannotRenounce();
 
     constructor(
         IERC20 usdc_,
@@ -253,9 +263,12 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         return layer[0];
     }
 
-    /// @notice Whether code `index` of a purchase has been redeemed or cancelled.
+    /// @notice Whether code `index` of a purchase has been redeemed or cancelled. Reverts for a code
+    /// the purchase does not have, so "not used" always means a code that can still be spent.
     function isUsed(bytes32 id, uint256 index) external view returns (bool) {
-        return index < 200 && batches[id].used & (1 << index) != 0;
+        Batch storage b = batches[id];
+        if (index >= b.count) revert UnknownCode();
+        return b.used & (1 << index) != 0;
     }
 
     // ------------------------------------------------------------- redeem
@@ -268,10 +281,24 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
     function redeem(Redeem calldata r, bytes calldata sig, bytes32[] calldata proof) external nonReentrant {
         (bytes32 id, address code, uint256 amount) = _use(r, sig, proof);
         uint256 spent = _renew(r);
-        // Every unit leaving a code goes to a renewer or back to the buyer, never to the caller.
+        // Every unit leaving a code goes to a renewer or back to the buyer, never to the caller. If
+        // the buyer can't receive USDC right now (for example a blocked address), the leftover is
+        // kept for them, so the holder's redemption still goes through.
         uint256 refund = amount - spent;
-        if (refund > 0) usdc.safeTransfer(r.buyer, refund);
+        if (refund > 0 && !usdc.trySafeTransfer(r.buyer, refund)) {
+            refundsOwed[r.buyer] += refund;
+            emit RefundOwed(r.buyer, refund);
+        }
         emit Redeemed(id, code, r.index, r.renewals, spent, refund);
+    }
+
+    /// @notice Take redemption leftovers that could not be sent when the codes were redeemed.
+    function claimRefund() external nonReentrant {
+        uint256 amount = refundsOwed[msg.sender];
+        if (amount == 0) revert NothingOwed();
+        refundsOwed[msg.sender] = 0;
+        usdc.safeTransfer(msg.sender, amount);
+        emit RefundClaimed(msg.sender, amount);
     }
 
     /// @dev Checks the redemption and marks the code used. Returns the purchase, the code's key
@@ -320,8 +347,8 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
             uint256 left = usdc.balanceOf(address(this));
             uint256 spentHere = balance - left;
             if (spentHere > budget) revert Overspent();
-            // An exact spend used the whole allowance; otherwise clear what is left of it.
-            if (spentHere < budget) usdc.forceApprove(renewer, 0);
+            // No allowance outlives the call, whatever the renewer did with it.
+            usdc.forceApprove(renewer, 0);
             budget -= spentHere;
             balance = left;
             i = end;
@@ -416,17 +443,21 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         return _config.paused;
     }
 
-    /// @notice Start the timelock for a new renewer. Renewers can be added, never removed.
+    /// @notice Start the timelock for a new renewer. It can be activated during `RENEWER_WINDOW`
+    /// after the delay, then the proposal lapses.
     function proposeRenewer(address renewer) external onlyOwner {
         uint256 activatesAt = block.timestamp + RENEWER_DELAY;
         pendingRenewers[renewer] = activatesAt;
         emit RenewerProposed(renewer, activatesAt);
     }
 
-    /// @notice Anyone may activate a proposed renewer once its delay has passed.
+    /// @notice Anyone may activate a proposed renewer once its delay has passed, until the proposal
+    /// lapses `RENEWER_WINDOW` later.
     function activateRenewer(address renewer) external {
         uint256 activatesAt = pendingRenewers[renewer];
-        if (activatesAt == 0 || block.timestamp < activatesAt) revert RenewerNotReady();
+        if (activatesAt == 0 || block.timestamp < activatesAt || block.timestamp > activatesAt + RENEWER_WINDOW) {
+            revert RenewerNotReady();
+        }
         delete pendingRenewers[renewer];
         isRenewer[renewer] = true;
         emit RenewerAdded(renewer);
@@ -437,6 +468,20 @@ contract ClaimCodeVault is EIP712, Ownable2Step, ReentrancyGuardTransient {
         if (pendingRenewers[renewer] == 0) revert RenewerNotReady();
         delete pendingRenewers[renewer];
         emit RenewerCancelled(renewer);
+    }
+
+    /// @notice Stop a renewer at once, for example one ENS has replaced or that misbehaves. It can
+    /// take no USDC: codes stay with their buyers and can be redeemed through the other renewers
+    /// or cancelled. Adding it back goes through the delay again.
+    function removeRenewer(address renewer) external onlyOwner {
+        if (!isRenewer[renewer]) revert NotRenewer();
+        delete isRenewer[renewer];
+        emit RenewerRemoved(renewer);
+    }
+
+    /// @notice Ownership cannot be given up: pausing, the cap and renewers always need an owner.
+    function renounceOwnership() public pure override {
+        revert CannotRenounce();
     }
 
     function setMaxCodeAmount(uint96 amount) external onlyOwner {
