@@ -2,6 +2,7 @@
   "name": "ens-codes-server",
   "private": true,
   "description": "Server functions for ens.codes (the relayer). The site itself lives in web/.",
+  "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test api/_lib/*.test.ts"
