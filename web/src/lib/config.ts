@@ -45,10 +45,18 @@ export const VAULT = (env.VITE_VAULT ?? '') as Address
 export const VAULT_DEPLOY_BLOCK = BigInt(env.VITE_VAULT_DEPLOY_BLOCK ?? 0)
 
 /**
- * The most blocks one history request may cover. Providers cap this (Goldsky: 10,000), so the
- * vault's events are read a window at a time. Set VITE_LOG_RANGE to match another provider.
+ * The most blocks one history request may cover. Providers cap this, by chain (Goldsky Edge RPC:
+ * 20,000 on Sepolia, 1,000 on Ethereum), so the vault's events are read a window at a time. Set
+ * VITE_LOG_RANGE to match the provider.
  */
 export const LOG_RANGE = BigInt(env.VITE_LOG_RANGE || 10_000)
+
+/**
+ * The vault's subgraph (indexer/), which answers history questions in one request instead of one
+ * per LOG_RANGE blocks. Optional: without it, or if it fails, history is read from the chain. It
+ * indexes one vault, so it must be redeployed for a new one.
+ */
+export const SUBGRAPH_URL: string | undefined = env.VITE_SUBGRAPH_URL || undefined
 
 /** Local testing only: announces an EIP-6963 wallet backed by anvil's unlocked accounts. */
 export const DEV_WALLET = env.VITE_DEV_WALLET === '1' && CHAIN_ID === 31337

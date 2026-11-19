@@ -57,6 +57,15 @@ export type Activity =
   | { kind: 'redeemed'; at: number; tx: string; who: string; buyer: string | null; names: string[]; spent: number; change: number; relayed: boolean }
   | { kind: 'cancelled'; at: number; tx: string; who: string; codes: number; amount: number }
   | { kind: 'swept'; at: number; tx: string; who: string; amount: number }
+  /** A redemption's leftover the buyer couldn't receive, held for them (`claimed` false), or them taking it later. */
+  | { kind: 'refund'; at: number; tx: string; who: string; amount: number; claimed: boolean }
+  /** `who` is the renewer. `activatesAt` is set for a proposal. */
+  | { kind: 'renewer'; at: number; tx: string; who: string; change: RenewerChange; activatesAt: number | null }
+  /** `who` is the new owner for ownership changes, else null. `amount` is the new largest code for `limit`. */
+  | { kind: 'admin'; at: number; tx: string; who: string | null; change: AdminChange; amount: number | null }
+
+export type RenewerChange = 'proposed' | 'added' | 'cancelled' | 'removed'
+export type AdminChange = 'paused' | 'unpaused' | 'limit' | 'ownershipStarted' | 'ownershipTransferred'
 
 export type Bucket = { label: string; codes: number; purchases?: number }
 
@@ -77,6 +86,11 @@ export type Summary = {
   topNames: { name: string; times: number; seconds: number }[]
   uniqueNames: number
   feesSwept: number
+  /**
+   * Redemption leftovers the buyer couldn't receive at the time: `held` in all (already counted in
+   * each day's `change`), and how much of it buyers have since claimed.
+   */
+  refunds: { held: number; claimed: number }
   relayed: { count: number; gas: string }
   byWallet: { count: number }
 }
@@ -89,5 +103,21 @@ export type Stats = Summary & {
   /** The fee charged per code. */
   fee: number
   state: { usdc: number; feesAccrued: number; feeRecipient: string; paused: boolean; maxCodeAmount: number }
-  relayer: { address: string | null; enabled: boolean; signer: boolean; funded: boolean; affordable: boolean; balance: string }
+  /** Leftovers held for buyers right now, read from the vault: the total and who is owed. */
+  owed: { total: number; buyers: { address: string; amount: number }[] }
+  /** Who controls the vault. Null where the vault can't say (an older vault without these reads). */
+  governance: {
+    owner: string
+    /** Set while an ownership handover waits for the new owner to accept it. */
+    pendingOwner: string | null
+    /** Contracts the vault pays for renewals right now. `name` for the ENS contracts we know. */
+    renewers: { address: string; name: string | null }[]
+    /**
+     * Proposed renewers not yet activated or cancelled. Anyone can activate one from `activatesAt`
+     * until `closesAt`; after that it lapses, but stays listed until the owner cancels it.
+     */
+    proposals: { address: string; name: string | null; activatesAt: number; closesAt: number }[]
+  } | null
+  /** `gasPrice` is the network fee now and `maxFee` the most the relayer pays, both in wei. */
+  relayer: { address: string | null; enabled: boolean; signer: boolean; funded: boolean; affordable: boolean; balance: string; gasPrice: string; maxFee: string }
 }

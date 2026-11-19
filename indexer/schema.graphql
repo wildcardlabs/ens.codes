@@ -1,0 +1,95 @@
+# One entity per vault event, as it was emitted. Nothing is derived here: the site and the
+# dashboard work their figures out from these, the same way they do from the chain's logs.
+# Every entity carries where it happened, so results can be put back in chain order with
+# (block, logIndex).
+
+type Purchase @entity(immutable: true) {
+  id: Bytes!
+  batch: Bytes!
+  buyer: Bytes!
+  amount: BigInt!
+  count: BigInt!
+  root: Bytes!
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+type Redemption @entity(immutable: true) {
+  id: Bytes!
+  batch: Bytes!
+  code: Bytes!
+  index: BigInt!
+  renewers: [Bytes!]!
+  labels: [String!]!
+  durations: [BigInt!]!
+  spent: BigInt!
+  refunded: BigInt!
+  "Who sent the transaction: the relayer, or the person's own wallet."
+  sender: Bytes!
+  gasUsed: BigInt!
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+type Cancellation @entity(immutable: true) {
+  id: Bytes!
+  batch: Bytes!
+  buyer: Bytes!
+  mask: BigInt!
+  refunded: BigInt!
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+type FeeSweep @entity(immutable: true) {
+  id: Bytes!
+  to: Bytes!
+  amount: BigInt!
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+"A redemption's leftover held for the buyer (owed), or the buyer taking it (claimed)."
+type Refund @entity(immutable: true) {
+  id: Bytes!
+  kind: String!
+  buyer: Bytes!
+  amount: BigInt!
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+"proposed, added, cancelled or removed. activatesAt is set for proposed only."
+type RenewerChange @entity(immutable: true) {
+  id: Bytes!
+  kind: String!
+  renewer: Bytes!
+  activatesAt: BigInt
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+"paused, unpaused, maxCodeAmount (amount), ownershipStarted or ownershipTransferred (from, to)."
+type AdminChange @entity(immutable: true) {
+  id: Bytes!
+  kind: String!
+  amount: BigInt
+  from: Bytes
+  to: Bytes
+  block: BigInt!
+  logIndex: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}

@@ -1,4 +1,4 @@
-import { type Address, getAddress, type Hex, type WalletClient } from 'viem'
+import { type Address, getAddress, type Hex, parseEventLogs, type WalletClient } from 'viem'
 import { createSiweMessage, generateSiweNonce } from 'viem/siwe'
 import { type Day, MAX_SESSION, SIGN_IN_STATEMENT, type Stats } from '../../../api/_lib/statsShared'
 import { vaultAbi } from './abi'
@@ -92,14 +92,17 @@ export async function loadStats(session: Session, fresh = false): Promise<Stats>
 async function landed(hash: Hex) {
   const receipt = await publicClient.waitForTransactionReceipt({ hash })
   if (receipt.status !== 'success') throw new Error('The transaction failed.')
+  return receipt
 }
 
-/** Send the fees collected so far to the vault's fee wallet. Any wallet may do this; the money can only go there. */
-export async function sweepFees(wallet: WalletClient, from: Address): Promise<void> {
+/** Send the fees collected so far to the vault's fee wallet. Any wallet may do this; the money can only go there. Returns what was sent. */
+export async function sweepFees(wallet: WalletClient, from: Address): Promise<bigint> {
   await ensureChainFor(wallet)
   const call = { account: from, address: VAULT, abi: vaultAbi, functionName: 'sweepFees' } as const
   await publicClient.simulateContract(call)
-  await landed(await wallet.writeContract({ ...call, chain: wallet.chain }))
+  const receipt = await landed(await wallet.writeContract({ ...call, chain: wallet.chain }))
+  const [swept] = parseEventLogs({ abi: vaultAbi, eventName: 'FeesSwept', logs: receipt.logs })
+  return swept?.args.amount ?? 0n
 }
 
 /** Send ETH from the connected wallet to the relayer, which spends it on network fees. */

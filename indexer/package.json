@@ -1,0 +1,14 @@
+{
+  "name": "ens-codes-indexer",
+  "private": true,
+  "description": "Subgraph of the ClaimCodeVault's events, hosted on Goldsky. The site reads history from it.",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph codegen && graph build",
+    "deploy": "npm run build && goldsky subgraph deploy ens-codes/$npm_config_tag --path ."
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "0.98.1",
+    "@graphprotocol/graph-ts": "0.38.2"
+  }
+}

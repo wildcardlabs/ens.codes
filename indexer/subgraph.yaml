@@ -1,0 +1,61 @@
+specVersion: 1.2.0
+description: ens.codes ClaimCodeVault events on Ethereum mainnet
+repository: https://github.com/wildcardlabs/ens.codes
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: ClaimCodeVault
+    network: mainnet
+    source:
+      address: "0x61cc5a4aa6748e55b89e8a6d49366da96598a804"
+      abi: ClaimCodeVault
+      startBlock: 26445442
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Purchase
+        - Redemption
+        - Cancellation
+        - FeeSweep
+        - Refund
+        - RenewerChange
+        - AdminChange
+      abis:
+        - name: ClaimCodeVault
+          file: ./abis/ClaimCodeVault.json
+      eventHandlers:
+        - event: Created(indexed bytes32,indexed address,uint256,uint256,bytes32)
+          handler: handleCreated
+        - event: Redeemed(indexed bytes32,indexed address,uint256,(address,string,uint64)[],uint256,uint256)
+          handler: handleRedeemed
+          receipt: true
+        - event: Cancelled(indexed bytes32,indexed address,uint256,uint256)
+          handler: handleCancelled
+        - event: FeesSwept(indexed address,uint256)
+          handler: handleFeesSwept
+        - event: RefundOwed(indexed address,uint256)
+          handler: handleRefundOwed
+        - event: RefundClaimed(indexed address,uint256)
+          handler: handleRefundClaimed
+        - event: RenewerProposed(indexed address,uint256)
+          handler: handleRenewerProposed
+        - event: RenewerAdded(indexed address)
+          handler: handleRenewerAdded
+        - event: RenewerCancelled(indexed address)
+          handler: handleRenewerCancelled
+        - event: RenewerRemoved(indexed address)
+          handler: handleRenewerRemoved
+        - event: Paused()
+          handler: handlePaused
+        - event: Unpaused()
+          handler: handleUnpaused
+        - event: MaxCodeAmountSet(uint96)
+          handler: handleMaxCodeAmountSet
+        - event: OwnershipTransferStarted(indexed address,indexed address)
+          handler: handleOwnershipTransferStarted
+        - event: OwnershipTransferred(indexed address,indexed address)
+          handler: handleOwnershipTransferred
+      file: ./src/vault.ts

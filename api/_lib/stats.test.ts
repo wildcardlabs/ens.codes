@@ -156,3 +156,28 @@ test('no events, no figures', () => {
   assert.equal(s.redeemTime.median, null)
   assert.deepEqual(s.codes, { sold: 0, redeemed: 0, cancelled: 0, unused: 0, unusedValue: 0 })
 })
+
+test('held change, renewer and settings events are logged and counted', () => {
+  const renewer = '0x00000000000000000000000000000000000000Aa' as Address
+  const s = summarise(
+    [
+      { ...at(T0), kind: 'admin', change: 'ownershipTransferred', amount: null, to: alice },
+      { ...at(T0), kind: 'renewer', change: 'added', renewer, activatesAt: null },
+      { ...at(T0 + 60), kind: 'bought', id: id(9), buyer: alice, amount: usd(10), count: 1 },
+      { ...at(T0 + 120), kind: 'refund', buyer: alice, amount: usd(3), claimed: false },
+      { ...at(T0 + 120), kind: 'redeemed', id: id(9), names: [{ label: 'gamma', seconds: DAY }], spent: usd(7), change: usd(3), sender: bob, gas: '0' },
+      { ...at(T0 + 180), kind: 'refund', buyer: alice, amount: usd(3), claimed: true },
+      { ...at(T0 + 240), kind: 'renewer', change: 'proposed', renewer, activatesAt: T0 + 240 + 2 * DAY },
+      { ...at(T0 + 300), kind: 'admin', change: 'limit', amount: usd(100), to: null },
+    ],
+    { now: T0 + DAY, fee: 50_000, relayer },
+  )
+  assert.deepEqual(s.refunds, { held: usd(3), claimed: usd(3) })
+  assert.equal(s.days[0].change, usd(3))
+  assert.deepEqual(
+    s.activity.map((a) => a.kind),
+    ['admin', 'renewer', 'refund', 'redeemed', 'refund', 'bought', 'renewer', 'admin'],
+  )
+  const proposal = s.activity[1]
+  assert.ok(proposal.kind === 'renewer' && proposal.change === 'proposed' && proposal.activatesAt === T0 + 240 + 2 * DAY)
+})

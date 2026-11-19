@@ -2,7 +2,7 @@ import { ArrowUpRight, Fuel, Loader2, LogOut, RefreshCw, TrendingDown, TrendingU
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
-import { type Address, parseEther } from 'viem'
+import { type Address, formatGwei, parseEther } from 'viem'
 import { Rows, SplitBar, StatusPill, Wrap } from '@/components/ds/primitives'
 import { Mark, Wordmark } from '@/components/ds/Wordmark'
 import { Badge } from '@/components/ui/badge'
@@ -339,7 +339,10 @@ function Overview({ stats, range, setRange }: { stats: Stats; range: Range; setR
 
   const { codes } = stats
   const life = useMemo(() => totals(stats.days), [stats.days])
-  const returned = life.change + life.cancelledValue
+  // A leftover the buyer couldn't receive stays in the vault until they claim it, so it isn't returned yet.
+  const directChange = Math.max(0, life.change - stats.refunds.held)
+  const returned = directChange + stats.refunds.claimed + life.cancelledValue
+  const inVault = codes.unusedValue + stats.owed.total
 
   return (
     <div className="grid gap-4">
@@ -432,14 +435,20 @@ function Overview({ stats, range, setRange }: { stats: Stats; range: Range; setR
           <CardContent className="grid gap-5">
             <SplitBar
               segments={[
-                { key: 'vault', label: 'Waiting in the vault', detail: usd(codes.unusedValue), value: codes.unusedValue, color: UNUSED },
+                { key: 'vault', label: 'Waiting in the vault', detail: usd(inVault), value: inVault, color: UNUSED },
                 { key: 'ens', label: 'Paid to ENS', detail: usd(life.spent), value: life.spent, color: REDEEMED },
                 { key: 'back', label: 'Returned to buyers', detail: usd(returned), value: returned, color: CANCELLED },
               ]}
             />
             <Rows
               rows={[
-                ['Returned as change from redeemed codes', usd(life.change)],
+                ['Returned as change from redeemed codes', usd(directChange)],
+                ...(stats.refunds.held > 0
+                  ? ([
+                      ['Change claimed later by buyers', usd(stats.refunds.claimed)],
+                      ['Change held for buyers to claim', usd(stats.owed.total)],
+                    ] as [string, string][])
+                  : []),
                 ['Returned from cancelled codes', usd(life.cancelledValue)],
                 ['Fees earned', usd(life.fees)],
               ]}
@@ -620,12 +629,27 @@ const KINDS: Record<Activity['kind'], { text: string; color: string }> = {
   redeemed: { text: 'Redeemed', color: REDEEMED },
   cancelled: { text: 'Cancelled', color: CANCELLED },
   swept: { text: 'Fees swept', color: RELAYED },
+  refund: { text: 'Change held', color: CANCELLED },
+  renewer: { text: 'Renewers', color: 'var(--red)' },
+  admin: { text: 'Settings', color: 'var(--caption)' },
 }
+
+const RENEWER_TEXT = { proposed: 'Renewer proposed', added: 'Renewer added', cancelled: 'Renewer proposal cancelled', removed: 'Renewer removed' } as const
+const ADMIN_TEXT = {
+  paused: 'Vault paused',
+  unpaused: 'Vault reopened',
+  limit: 'Largest code changed',
+  ownershipStarted: 'Ownership handover started',
+  ownershipTransferred: 'Ownership transferred',
+} as const
 
 function detail(a: Activity): ReactNode {
   if (a.kind === 'bought') return `${plural(a.codes, 'code')} bought`
   if (a.kind === 'cancelled') return `${plural(a.codes, 'code')} cancelled`
   if (a.kind === 'swept') return 'Fees sent to the fee wallet'
+  if (a.kind === 'refund') return a.claimed ? 'Held change claimed by the buyer' : 'Change the buyer couldn’t receive, held for them'
+  if (a.kind === 'renewer') return a.activatesAt ? `${RENEWER_TEXT[a.change]}, can be activated from ${fmtWhen(a.activatesAt)}` : RENEWER_TEXT[a.change]
+  if (a.kind === 'admin') return a.change === 'limit' && a.amount !== null ? `${ADMIN_TEXT.limit} to ${usd(a.amount)}` : ADMIN_TEXT[a.change]
   return (
     <>
       {a.names.slice(0, 2).join(', ')}
@@ -634,7 +658,8 @@ function detail(a: Activity): ReactNode {
   )
 }
 
-const amountOf = (a: Activity) => (a.kind === 'redeemed' ? a.spent : a.amount)
+const amountOf = (a: Activity): number | null => (a.kind === 'redeemed' ? a.spent : a.kind === 'renewer' || a.kind === 'admin' ? null : a.amount)
+const fmtWhen = (secs: number) => new Date(secs * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 function ActivityLog({ stats }: { stats: Stats }) {
   const [kind, setKind] = useState<'all' | Activity['kind']>('all')
@@ -692,11 +717,11 @@ function ActivityLog({ stats }: { stats: Stats }) {
                     <TableCell>
                       <StatusPill color={KINDS[a.kind].color}>{KINDS[a.kind].text}</StatusPill>
                     </TableCell>
-                    <TableCell>{a.kind === 'redeemed' && a.relayed ? <Who address={a.who} name="Relayer" /> : <Who address={a.who} />}</TableCell>
+                    <TableCell>{a.who === null ? <span className="text-caption">–</span> : a.kind === 'redeemed' && a.relayed ? <Who address={a.who} name="Relayer" /> : <Who address={a.who} />}</TableCell>
                     <TableCell className="max-w-[320px] truncate" title={a.kind === 'redeemed' && a.buyer ? `Code bought by ${a.buyer}` : undefined}>
                       {detail(a)}
                     </TableCell>
-                    <TableCell className="text-right font-medium text-foreground tabular-nums">{usd(amountOf(a))}</TableCell>
+                    <TableCell className="text-right font-medium text-foreground tabular-nums">{amountOf(a) === null ? <span className="text-caption">–</span> : usd(amountOf(a)!)}</TableCell>
                     <TableCell className="text-right">
                       <TxLink tx={a.tx} />
                     </TableCell>
@@ -720,7 +745,7 @@ function ActivityLog({ stats }: { stats: Stats }) {
 
 function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<void> }) {
   const { connected } = useWallet()
-  const { relayer, relayed, byWallet, state } = stats
+  const { relayer, relayed, byWallet, state, owed, governance } = stats
   const life = useMemo(() => totals(stats.days), [stats.days])
   const [login, setLogin] = useState(false)
   const [topUp, setTopUp] = useState(false)
@@ -744,12 +769,16 @@ function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<v
     if (connected) setLogin(false)
   }, [connected])
 
+  // Everything the vault holds is owed to someone: unused codes, held change, or fees. More than that
+  // is USDC sent to it directly; less would mean something is wrong.
+  const gap = state.usdc - stats.codes.unusedValue - owed.total - state.feesAccrued
+
   const sweep = async () => {
     if (!connected) return setLogin(true)
     setSweeping(true)
     try {
-      await sweepFees(connected.client, connected.address)
-      toast.success(`${usd(state.feesAccrued)} sent to the fee wallet.`)
+      const sent = await sweepFees(connected.client, connected.address)
+      toast.success(`${usd(Number(sent))} sent to the fee wallet.`)
       await refresh()
     } catch (err) {
       toast.error(errorMessage(err))
@@ -776,6 +805,8 @@ function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<v
               ['Spent on fees so far', fmtEth(gas)],
               ['Fee per redemption', relayed.count ? fmtEth(each) : '–'],
               ['Redemptions left', each > 0n ? `About ${fmtCount(Number(balance / each))}` : '–'],
+              ['Network fee now', `${fmtGwei(BigInt(relayer.gasPrice))} gwei`],
+              ['Stops sponsoring above', `${fmtGwei(BigInt(relayer.maxFee))} gwei`],
             ]}
           />
           <SplitBar
@@ -808,6 +839,13 @@ function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<v
               ['Network', chain.name],
               ['USDC held', usd(state.usdc)],
               ['For unused codes', usd(stats.codes.unusedValue)],
+              ['Held for buyers', usd(owed.total)],
+              ['Fees waiting', usd(state.feesAccrued)],
+              gap === 0
+                ? ['Balance check', 'Adds up']
+                : gap > 0
+                  ? ['Extra, sent in directly', usd(gap)]
+                  : ['Short by', <span className="font-medium text-red">{usd(-gap)}</span>],
               ['Largest code allowed', usd(state.maxCodeAmount)],
               ['Read at block', count(stats.block)],
             ]}
@@ -836,6 +874,20 @@ function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<v
         </CardContent>
       </Tile>
 
+      {governance && <Control governance={governance} asOf={stats.asOf} address={address} />}
+
+      {owed.buyers.length > 0 && (
+        <Tile className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Change held for buyers</CardTitle>
+            <CardDescription>Leftovers a buyer’s wallet couldn’t receive when their code was redeemed. Only that buyer can claim them.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Rows rows={owed.buyers.map((b) => [<Who key={b.address} address={b.address} />, usd(b.amount)] as [ReactNode, string])} />
+          </CardContent>
+        </Tile>
+      )}
+
       <Dialog open={login} onOpenChange={setLogin}>
         <DialogContent className="gap-0 p-7">
           <DialogTitle className="t-display text-[24px] leading-[28px]">Log in.</DialogTitle>
@@ -847,6 +899,74 @@ function Operations({ stats, refresh }: { stats: Stats; refresh: () => Promise<v
         <TopUp open={topUp} close={() => setTopUp(false)} relayer={relayer.address as Address} balance={balance} from={connected} done={refresh} />
       )}
     </div>
+  )
+}
+
+const fmtGwei = (wei: bigint) => {
+  const g = Number(formatGwei(wei))
+  return g >= 10 ? g.toFixed(0) : g >= 1 ? g.toFixed(1) : g === 0 ? '0' : String(Number(g.toPrecision(2)))
+}
+
+type Governance = NonNullable<Stats['governance']>
+
+/**
+ * Who controls the vault. A proposed renewer can be activated by anyone once its delay is over,
+ * so one the owner didn't expect must be cancelled before then: this is where it shows.
+ */
+function Control({ governance, asOf, address }: { governance: Governance; asOf: number; address: (a: string) => ReactNode }) {
+  const { owner, pendingOwner, renewers, proposals } = governance
+  const stateOf = (p: Governance['proposals'][number]) => (asOf < p.activatesAt ? 'waiting' : asOf <= p.closesAt ? 'ready' : 'lapsed')
+  const live = proposals.filter((p) => stateOf(p) !== 'lapsed')
+  const label = (a: { address: string; name: string | null }) => (
+    <span className="inline-flex items-baseline gap-2">
+      {a.name && <span className="text-foreground">{a.name}</span>}
+      {address(a.address)}
+    </span>
+  )
+  return (
+    <Tile>
+      <CardHeader>
+        <CardTitle>Owner and renewers</CardTitle>
+        <CardDescription>The vault only pays the renewers listed here. A new one waits 2 days after it is proposed.</CardDescription>
+        <CardAction>
+          <StatusPill color={live.length || pendingOwner ? 'var(--red)' : 'var(--green)'}>
+            {live.length ? `${plural(live.length, 'proposal')} pending` : pendingOwner ? 'Handover pending' : 'No changes pending'}
+          </StatusPill>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="grid gap-5">
+        <Rows
+          rows={[
+            ['Owner', address(owner)],
+            ...(pendingOwner ? ([['Handing over to', address(pendingOwner)]] as [string, ReactNode][]) : []),
+            ...renewers.map((r, i) => [i === 0 ? 'Renewers' : '', label(r)] as [string, ReactNode]),
+            ...(renewers.length === 0 ? ([['Renewers', 'None']] as [string, ReactNode][]) : []),
+          ]}
+        />
+        {proposals.length > 0 && (
+          <div className="grid gap-3">
+            {proposals.map((p) => {
+              const s = stateOf(p)
+              return (
+                <div key={p.address} className="rounded-lg bg-background p-3 text-[13px] leading-[19px]">
+                  <div className="flex items-center justify-between gap-2">
+                    {label(p)}
+                    <StatusPill color={s === 'lapsed' ? 'var(--caption)' : 'var(--red)'}>{s === 'waiting' ? 'Proposed' : s === 'ready' ? 'Can be activated' : 'Lapsed'}</StatusPill>
+                  </div>
+                  <p className="mt-1.5 text-caption">
+                    {s === 'waiting'
+                      ? `Anyone can activate it from ${fmtWhen(p.activatesAt)} until ${fmtWhen(p.closesAt)}. If you didn’t propose it, cancel it with cancelRenewer before then.`
+                      : s === 'ready'
+                        ? `Anyone can activate it until ${fmtWhen(p.closesAt)}. If you didn’t propose it, cancel it with cancelRenewer now.`
+                        : `Its window closed on ${fmtWhen(p.closesAt)}, so it can no longer be activated. The owner can clear it with cancelRenewer.`}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Tile>
   )
 }
 

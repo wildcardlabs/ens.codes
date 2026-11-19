@@ -2,7 +2,8 @@ import { type Address, type BaseError, domainSeparator, encodeAbiParameters, erc
 import type { PrivateKeyAccount } from 'viem/accounts'
 import { vaultAbi } from './abi'
 import { format, keyForSecret, parse } from './code'
-import { chain, LOG_RANGE, publicClient, USDC, VAULT, VAULT_DEPLOY_BLOCK, VAULT_DOMAIN } from './config'
+import { indexedAll, indexedBlock, indexedTxsAt } from '../../../api/_lib/subgraphShared'
+import { chain, LOG_RANGE, publicClient, SUBGRAPH_URL, USDC, VAULT, VAULT_DEPLOY_BLOCK, VAULT_DOMAIN } from './config'
 import { merkleProof, merkleRoot } from './merkle'
 import { ensureChainFor } from './wallet'
 
@@ -539,17 +540,77 @@ async function paged<T>(fromBlock: bigint, read: (fromBlock: bigint, toBlock: bi
   return pages.flat()
 }
 
+/**
+ * History from `fromBlock` to now: from the subgraph up to the block it has reached, then from the
+ * chain for anything newer. If the subgraph is not set or can't answer, all of it from the chain.
+ * `indexed` gets the subgraph's block and must return only entities at or after `fromBlock`.
+ */
+async function history<T>(
+  fromBlock: bigint,
+  indexed: (url: string, at: bigint) => Promise<T[]>,
+  onChain: (fromBlock: bigint, toBlock: bigint) => Promise<T[]>,
+): Promise<T[]> {
+  if (SUBGRAPH_URL) {
+    try {
+      const at = await indexedBlock(SUBGRAPH_URL)
+      if (!(await subgraphFits(SUBGRAPH_URL, at))) throw new Error('The subgraph indexes a different vault')
+      const [old, recent] = await Promise.all([indexed(SUBGRAPH_URL, at), paged(at + 1n > fromBlock ? at + 1n : fromBlock, onChain)])
+      return [...old, ...recent]
+    } catch (err) {
+      console.warn('Reading history from the chain instead of the subgraph:', err)
+    }
+  }
+  return paged(fromBlock, onChain)
+}
+
+/**
+ * Whether the subgraph indexes this vault: its owner and renewer events at the deploy block are
+ * the chain's. Checked once per page load.
+ */
+let fits: Promise<boolean> | null = null
+function subgraphFits(url: string, at: bigint): Promise<boolean> {
+  fits ??= (async () => {
+    if (at < VAULT_DEPLOY_BLOCK) return true // Not there yet: nothing it holds is used.
+    const [indexed, logs] = await Promise.all([
+      indexedTxsAt(url, VAULT_DEPLOY_BLOCK, at),
+      publicClient.getLogs({ address: VAULT, fromBlock: VAULT_DEPLOY_BLOCK, toBlock: VAULT_DEPLOY_BLOCK }),
+    ])
+    const onChain = new Set(logs.map((l) => l.transactionHash.toLowerCase()))
+    return indexed.size > 0 && [...indexed].every((tx) => onChain.has(tx))
+  })()
+  const ok = fits
+  ok.catch(() => fits === ok && (fits = null))
+  return ok
+}
+
+/** Oldest first, by block then position in the block. */
+const chainOrder = (a: { block: bigint; logIndex: number }, b: { block: bigint; logIndex: number }) =>
+  a.block === b.block ? a.logIndex - b.logIndex : a.block < b.block ? -1 : 1
+
 /** One purchase, from its Created event. */
 export type Purchase = { id: Hex; root: Hex; amount: bigint; count: number; tx: Hex; block: bigint }
 
 /** The purchases this wallet made, oldest first. Its codes are numbered in this order. */
 export async function purchasesBy(buyer: Address, fromBlock: bigint): Promise<Purchase[]> {
-  const logs = await paged(fromBlock, (from, to) =>
-    publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Created', args: { buyer }, fromBlock: from, toBlock: to }),
+  type Row = { id: string; batch: Hex; root: Hex; amount: string; count: string; tx: Hex; block: string; logIndex: string }
+  const found = await history(
+    fromBlock,
+    async (url, at) =>
+      (await indexedAll<Row>(url, 'Purchase', 'purchases', 'batch root amount count tx block logIndex', { buyer: buyer.toLowerCase(), block_gte: fromBlock.toString() }, at)).map(
+        (r) => ({ id: r.batch, root: r.root, amount: BigInt(r.amount), count: Number(r.count), tx: r.tx, block: BigInt(r.block), logIndex: Number(r.logIndex) }),
+      ),
+    async (from, to) =>
+      (await publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Created', args: { buyer }, fromBlock: from, toBlock: to })).map((l) => ({
+        id: l.args.id!,
+        root: l.args.root!,
+        amount: l.args.amount!,
+        count: Number(l.args.count!),
+        tx: l.transactionHash!,
+        block: l.blockNumber!,
+        logIndex: l.logIndex!,
+      })),
   )
-  return logs
-    .sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex! - b.logIndex! : a.blockNumber! < b.blockNumber! ? -1 : 1))
-    .map((l) => ({ id: l.args.id!, root: l.args.root!, amount: l.args.amount!, count: Number(l.args.count!), tx: l.transactionHash!, block: l.blockNumber! }))
+  return found.sort(chainOrder).map(({ logIndex: _, ...p }) => p)
 }
 
 /** The used bits of each purchase (redeemed or cancelled), by purchase id. Sent as one request. */
@@ -560,11 +621,20 @@ export async function usedBits(ids: Hex[]): Promise<Map<Hex, bigint>> {
 
 /** The codes this wallet cancelled: one bit per code, by purchase id. */
 export async function cancelledBits(buyer: Address, fromBlock: bigint): Promise<Map<Hex, bigint>> {
-  const logs = await paged(fromBlock, (from, to) =>
-    publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Cancelled', args: { buyer }, fromBlock: from, toBlock: to }),
+  const found = await history(
+    fromBlock,
+    async (url, at) =>
+      (await indexedAll<{ id: string; batch: Hex; mask: string }>(url, 'Cancellation', 'cancellations', 'batch mask', { buyer: buyer.toLowerCase(), block_gte: fromBlock.toString() }, at)).map(
+        (r) => ({ id: r.batch, mask: BigInt(r.mask) }),
+      ),
+    async (from, to) =>
+      (await publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Cancelled', args: { buyer }, fromBlock: from, toBlock: to })).map((l) => ({
+        id: l.args.id!,
+        mask: l.args.mask!,
+      })),
   )
   const out = new Map<Hex, bigint>()
-  for (const l of logs) out.set(l.args.id!, (out.get(l.args.id!) ?? 0n) | l.args.mask!)
+  for (const c of found) out.set(c.id, (out.get(c.id) ?? 0n) | c.mask)
   return out
 }
 
@@ -596,38 +666,70 @@ export async function redemptionsOf(ids: Hex[], fromBlock: bigint): Promise<Rede
   const CHUNK = 100 // keep the topic filter a reasonable size for public RPCs
   const chunks: Hex[][] = []
   for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
-  const logs = (
+  type Row = { id: string; batch: Hex; index: string; code: Address; labels: string[]; durations: string[]; spent: string; refunded: string; tx: Hex; block: string; logIndex: string; timestamp: string }
+  const found = (
     await Promise.all(
-      chunks.map((id) =>
-        paged(fromBlock, (from, to) =>
-          publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Redeemed', args: { id }, fromBlock: from, toBlock: to }),
+      chunks.map((chunk) =>
+        history<Redemption>(
+          fromBlock,
+          async (url, at) =>
+            (
+              await indexedAll<Row>(
+                url,
+                'Redemption',
+                'redemptions',
+                'batch index code labels durations spent refunded tx block logIndex timestamp',
+                { batch_in: chunk.map((id) => id.toLowerCase()), block_gte: fromBlock.toString() },
+                at,
+              )
+            ).map((r) => ({
+              id: r.batch,
+              index: Number(r.index),
+              code: getAddress(r.code),
+              renewals: r.labels.map((label, i) => ({ label, duration: BigInt(r.durations[i]) })),
+              spent: BigInt(r.spent),
+              refunded: BigInt(r.refunded),
+              tx: r.tx,
+              block: BigInt(r.block),
+              logIndex: Number(r.logIndex),
+              at: BigInt(r.timestamp),
+            })),
+          async (from, to) =>
+            (await publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Redeemed', args: { id: chunk }, fromBlock: from, toBlock: to })).map((l) => ({
+              id: l.args.id!,
+              index: Number(l.args.index!),
+              code: l.args.code!,
+              renewals: l.args.renewals!.map((r) => ({ label: r.label, duration: r.duration })),
+              spent: l.args.spent!,
+              refunded: l.args.refunded!,
+              tx: l.transactionHash!,
+              block: l.blockNumber!,
+              logIndex: l.logIndex!,
+              at: 0n,
+            })),
         ),
       ),
     )
   ).flat()
-  const times = await blockTimes(logs.map((l) => l.blockNumber!))
-  return logs
-    .map((l) => ({
-      id: l.args.id!,
-      index: Number(l.args.index!),
-      code: l.args.code!,
-      renewals: l.args.renewals!.map((r) => ({ label: r.label, duration: r.duration })),
-      spent: l.args.spent!,
-      refunded: l.args.refunded!,
-      tx: l.transactionHash!,
-      block: l.blockNumber!,
-      logIndex: l.logIndex!,
-      at: times.get(l.blockNumber!) ?? 0n,
-    }))
-    .sort((a, b) => (a.block === b.block ? b.logIndex - a.logIndex : a.block < b.block ? 1 : -1))
+  // The subgraph gives each redemption's time; ones read from the chain need their block's.
+  const times = await blockTimes(found.filter((r) => r.at === 0n).map((r) => r.block))
+  return found
+    .map((r) => (r.at === 0n ? { ...r, at: times.get(r.block) ?? 0n } : r))
+    .sort((a, b) => chainOrder(b, a))
 }
 
 /** What happened to a code that has been used: the redemption, or that its buyer cancelled it. */
 export async function outcomeOf(claim: Claim): Promise<{ kind: 'redeemed'; redemption: Redemption } | { kind: 'cancelled' } | null> {
   const redeemed = (await redemptionsOf([claim.id], claim.block).catch(() => [])).find((r) => r.index === claim.index)
   if (redeemed) return { kind: 'redeemed', redemption: redeemed }
-  const cancelled = await paged(claim.block, (from, to) =>
-    publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Cancelled', args: { id: claim.id }, fromBlock: from, toBlock: to }),
+  const masks = await history(
+    claim.block,
+    async (url, at) =>
+      (await indexedAll<{ id: string; mask: string }>(url, 'Cancellation', 'cancellations', 'mask', { batch: claim.id.toLowerCase(), block_gte: claim.block.toString() }, at)).map((r) =>
+        BigInt(r.mask),
+      ),
+    async (from, to) =>
+      (await publicClient.getContractEvents({ address: VAULT, abi: vaultAbi, eventName: 'Cancelled', args: { id: claim.id }, fromBlock: from, toBlock: to })).map((l) => l.args.mask!),
   ).catch(() => [])
-  return cancelled.some((l) => (l.args.mask! >> BigInt(claim.index)) % 2n === 1n) ? { kind: 'cancelled' } : null
+  return masks.some((mask) => (mask >> BigInt(claim.index)) % 2n === 1n) ? { kind: 'cancelled' } : null
 }

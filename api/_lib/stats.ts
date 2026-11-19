@@ -1,7 +1,9 @@
 import { getAddress, isAddress, isHex, parseAbi, recoverMessageAddress, type Address, type Hex } from 'viem'
 import { parseSiweMessage } from 'viem/siwe'
 import { clientFor, configFromEnv, info, type RelayConfig } from './relay.js'
-import { MAX_SESSION, SIGN_IN_STATEMENT, type Activity, type Bucket, type Buyer, type Day, type Stats, type Summary } from './statsShared.js'
+import { addresses } from 'ens-budget'
+import { indexedAll, indexedBlock, indexedTxsAt } from './subgraphShared.js'
+import { type AdminChange, MAX_SESSION, type RenewerChange, SIGN_IN_STATEMENT, type Activity, type Bucket, type Buyer, type Day, type Stats, type Summary } from './statsShared.js'
 
 /**
  * The dashboard's numbers, for the vault's owner only.
@@ -18,6 +20,8 @@ export type StatsConfig = RelayConfig & {
   logRange: bigint
   /** Who may read the dashboard. Null: the vault's owner. */
   admin: Address | null
+  /** The vault's subgraph, read before the chain. Null: the chain only. */
+  subgraph: string | null
 }
 
 export function statsConfigFromEnv(env: Record<string, string | undefined>): StatsConfig {
@@ -27,6 +31,7 @@ export function statsConfigFromEnv(env: Record<string, string | undefined>): Sta
     deployBlock: BigInt(env.VITE_VAULT_DEPLOY_BLOCK || 0),
     logRange: BigInt(env.VITE_LOG_RANGE || 10_000),
     admin: admin && isAddress(admin) ? getAddress(admin) : null,
+    subgraph: env.VITE_SUBGRAPH_URL || null,
   }
 }
 
@@ -107,7 +112,23 @@ const vaultAbi = parseAbi([
   'event Redeemed(bytes32 indexed id, address indexed code, uint256 index, (address renewer, string label, uint64 duration)[] renewals, uint256 spent, uint256 refunded)',
   'event Cancelled(bytes32 indexed id, address indexed buyer, uint256 mask, uint256 refunded)',
   'event FeesSwept(address indexed to, uint256 amount)',
+  'event RefundOwed(address indexed buyer, uint256 amount)',
+  'event RefundClaimed(address indexed buyer, uint256 amount)',
+  'event RenewerProposed(address indexed renewer, uint256 activatesAt)',
+  'event RenewerAdded(address indexed renewer)',
+  'event RenewerCancelled(address indexed renewer)',
+  'event RenewerRemoved(address indexed renewer)',
+  'event MaxCodeAmountSet(uint96 amount)',
+  'event Paused()',
+  'event Unpaused()',
+  'event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner)',
+  'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
   'function owner() view returns (address)',
+  'function pendingOwner() view returns (address)',
+  'function isRenewer(address) view returns (bool)',
+  'function pendingRenewers(address) view returns (uint256)',
+  'function RENEWER_WINDOW() view returns (uint256)',
+  'function refundsOwed(address) view returns (uint256)',
   'function usdc() view returns (address)',
   'function feesAccrued() view returns (uint256)',
   'function paused() view returns (bool)',
@@ -126,6 +147,9 @@ export type VaultEvent = Where &
     | { kind: 'redeemed'; id: Hex; names: { label: string; seconds: number }[]; spent: number; change: number; sender: Address; gas: string }
     | { kind: 'cancelled'; id: Hex; buyer: Address; count: number; value: number }
     | { kind: 'swept'; to: Address; amount: number }
+    | { kind: 'refund'; buyer: Address; amount: number; claimed: boolean }
+    | { kind: 'renewer'; change: RenewerChange; renewer: Address; activatesAt: number | null }
+    | { kind: 'admin'; change: AdminChange; amount: number | null; to: Address | null }
   )
 
 const popcount = (x: bigint) => {
@@ -150,8 +174,117 @@ async function pooled<T, R>(items: T[], size: number, job: (item: T) => Promise<
 
 type Client = ReturnType<typeof clientFor>
 
-/** The vault's events between two blocks, oldest first, each with its time and (for a redemption) who sent it. */
+/**
+ * The vault's events between two blocks, oldest first: from the subgraph as far as it has reached,
+ * then from the chain. If the subgraph is not set or can't answer, all of it from the chain.
+ */
 async function read(client: Client, cfg: StatsConfig, from: bigint, to: bigint): Promise<VaultEvent[]> {
+  if (from > to) return []
+  if (cfg.subgraph) {
+    try {
+      const at = await indexedBlock(cfg.subgraph)
+      if (!(await subgraphFits(client, cfg, cfg.subgraph, at))) throw new Error('The subgraph indexes a different vault')
+      const mid = at < to ? at : to
+      const [old, recent] = await Promise.all([fromSubgraph(client, cfg.subgraph, cfg.account?.address ?? null, from, mid, at), readChain(client, cfg, mid + 1n > from ? mid + 1n : from, to)])
+      return [...old, ...recent].sort((a, b) => a.block - b.block || a.log - b.log)
+    } catch (err) {
+      console.warn('stats: reading history from the chain instead of the subgraph', err)
+    }
+  }
+  return readChain(client, cfg, from, to)
+}
+
+/**
+ * Whether the subgraph indexes this vault: its owner and renewer events at the deploy block are
+ * the chain's. Checked once per vault while this instance is warm.
+ */
+let fits: { key: string; ok: Promise<boolean> } | null = null
+function subgraphFits(client: Client, cfg: StatsConfig, url: string, at: bigint): Promise<boolean> {
+  const key = `${url}:${cfg.vault}:${cfg.deployBlock}`
+  if (fits?.key !== key) {
+    const ok = (async () => {
+      if (at < cfg.deployBlock) return true // Not there yet: nothing it holds is used.
+      const [indexed, logs] = await Promise.all([
+        indexedTxsAt(url, cfg.deployBlock, at),
+        client.getLogs({ address: cfg.vault, fromBlock: cfg.deployBlock, toBlock: cfg.deployBlock }),
+      ])
+      const onChain = new Set(logs.map((l) => l.transactionHash.toLowerCase()))
+      return indexed.size > 0 && [...indexed].every((tx) => onChain.has(tx))
+    })()
+    fits = { key, ok }
+    ok.catch(() => fits?.ok === ok && (fits = null))
+  }
+  return fits.ok
+}
+
+/** A mined transaction's receipt. Some providers briefly answer "not found" for one; ask again before giving up. */
+async function receiptOf(client: Client, hash: Hex) {
+  for (let tries = 1; ; tries++) {
+    try {
+      return await client.getTransactionReceipt({ hash })
+    } catch (err) {
+      if (tries >= 3) throw err
+      await new Promise((r) => setTimeout(r, 400 * tries))
+    }
+  }
+}
+
+type Row = { id: string; block: string; logIndex: string; timestamp: string; tx: Hex }
+
+/**
+ * The same events from the subgraph, as of block `at`. The subgraph has each redemption's sender;
+ * only the relayer's own redemptions need their receipt, for the fee it paid.
+ */
+async function fromSubgraph(client: Client, url: string, relayer: Address | null, from: bigint, to: bigint, at: bigint): Promise<VaultEvent[]> {
+  if (from > to) return []
+  const where = { block_gte: from.toString(), block_lte: to.toString() }
+  const base = 'block logIndex timestamp tx'
+  const [bought, redeemed, cancelled, swept, refunds, renewers, admin] = await Promise.all([
+    indexedAll<Row & { batch: Hex; buyer: Address; amount: string; count: string }>(url, 'Purchase', 'purchases', `${base} batch buyer amount count`, where, at),
+    indexedAll<Row & { batch: Hex; labels: string[]; durations: string[]; spent: string; refunded: string; sender: Address }>(
+      url,
+      'Redemption',
+      'redemptions',
+      `${base} batch labels durations spent refunded sender`,
+      where,
+      at,
+    ),
+    indexedAll<Row & { batch: Hex; buyer: Address; mask: string; refunded: string }>(url, 'Cancellation', 'cancellations', `${base} batch buyer mask refunded`, where, at),
+    indexedAll<Row & { to: Address; amount: string }>(url, 'FeeSweep', 'feeSweeps', `${base} to amount`, where, at),
+    indexedAll<Row & { kind: string; buyer: Address; amount: string }>(url, 'Refund', 'refunds', `${base} kind buyer amount`, where, at),
+    indexedAll<Row & { kind: RenewerChange; renewer: Address; activatesAt: string | null }>(url, 'RenewerChange', 'renewerChanges', `${base} kind renewer activatesAt`, where, at),
+    indexedAll<Row & { kind: string; amount: string | null; to: Address | null }>(url, 'AdminChange', 'adminChanges', `${base} kind amount to`, where, at),
+  ])
+  const isRelayer = (sender: Address) => !!relayer && getAddress(sender) === relayer
+  const relayedTxs = [...new Set(redeemed.filter((r) => isRelayer(r.sender)).map((r) => r.tx))]
+  const receipts = new Map(await pooled(relayedTxs, 8, async (hash) => [hash, await receiptOf(client, hash)] as const))
+  const ADMIN: Record<string, AdminChange> = { paused: 'paused', unpaused: 'unpaused', maxCodeAmount: 'limit', ownershipStarted: 'ownershipStarted', ownershipTransferred: 'ownershipTransferred' }
+  const place = (r: Row) => ({ at: Number(r.timestamp), block: Number(r.block), log: Number(r.logIndex), tx: r.tx })
+  return [
+    ...bought.map((r): VaultEvent => ({ ...place(r), kind: 'bought', id: r.batch, buyer: getAddress(r.buyer), amount: Number(r.amount), count: Number(r.count) })),
+    ...redeemed.map((r): VaultEvent => {
+      const receipt = receipts.get(r.tx)
+      return {
+        ...place(r),
+        kind: 'redeemed',
+        id: r.batch,
+        names: r.labels.map((label, i) => ({ label, seconds: Number(r.durations[i]) })),
+        spent: Number(r.spent),
+        change: Number(r.refunded),
+        sender: getAddress(r.sender),
+        gas: receipt ? (receipt.gasUsed * receipt.effectiveGasPrice).toString() : '0',
+      }
+    }),
+    ...cancelled.map((r): VaultEvent => ({ ...place(r), kind: 'cancelled', id: r.batch, buyer: getAddress(r.buyer), count: popcount(BigInt(r.mask)), value: Number(r.refunded) })),
+    ...swept.map((r): VaultEvent => ({ ...place(r), kind: 'swept', to: getAddress(r.to), amount: Number(r.amount) })),
+    ...refunds.map((r): VaultEvent => ({ ...place(r), kind: 'refund', buyer: getAddress(r.buyer), amount: Number(r.amount), claimed: r.kind === 'claimed' })),
+    ...renewers.map((r): VaultEvent => ({ ...place(r), kind: 'renewer', change: r.kind, renewer: getAddress(r.renewer), activatesAt: r.activatesAt === null ? null : Number(r.activatesAt) })),
+    ...admin.map((r): VaultEvent => ({ ...place(r), kind: 'admin', change: ADMIN[r.kind], amount: r.amount === null ? null : Number(r.amount), to: r.to ? getAddress(r.to) : null })),
+  ]
+}
+
+/** The vault's events between two blocks from the chain's logs, oldest first, each with its time and (for a redemption) who sent it. */
+async function readChain(client: Client, cfg: StatsConfig, from: bigint, to: bigint): Promise<VaultEvent[]> {
   if (from > to) return []
   const windows: [bigint, bigint][] = []
   for (let a = from; a <= to; a += cfg.logRange) windows.push([a, a + cfg.logRange - 1n < to ? a + cfg.logRange - 1n : to])
@@ -168,7 +301,7 @@ async function read(client: Client, cfg: StatsConfig, from: bigint, to: bigint):
 
   // A redemption's sender says whether the relayer or a wallet sent it, and what it cost in gas.
   const redeemTxs = [...new Set(logs.filter((l) => l.eventName === 'Redeemed').map((l) => l.transactionHash))]
-  const receipts = new Map(await pooled(redeemTxs, 8, async (hash) => [hash, await client.getTransactionReceipt({ hash })] as const))
+  const receipts = new Map(await pooled(redeemTxs, 8, async (hash) => [hash, await receiptOf(client, hash)] as const))
 
   return logs
     .map((l): VaultEvent => {
@@ -193,6 +326,25 @@ async function read(client: Client, cfg: StatsConfig, from: bigint, to: bigint):
           return { ...where, kind: 'cancelled', id: l.args.id, buyer: l.args.buyer, count: popcount(l.args.mask), value: Number(l.args.refunded) }
         case 'FeesSwept':
           return { ...where, kind: 'swept', to: l.args.to, amount: Number(l.args.amount) }
+        case 'RefundOwed':
+        case 'RefundClaimed':
+          return { ...where, kind: 'refund', buyer: l.args.buyer, amount: Number(l.args.amount), claimed: l.eventName === 'RefundClaimed' }
+        case 'RenewerProposed':
+          return { ...where, kind: 'renewer', change: 'proposed', renewer: l.args.renewer, activatesAt: Number(l.args.activatesAt) }
+        case 'RenewerAdded':
+          return { ...where, kind: 'renewer', change: 'added', renewer: l.args.renewer, activatesAt: null }
+        case 'RenewerCancelled':
+          return { ...where, kind: 'renewer', change: 'cancelled', renewer: l.args.renewer, activatesAt: null }
+        case 'RenewerRemoved':
+          return { ...where, kind: 'renewer', change: 'removed', renewer: l.args.renewer, activatesAt: null }
+        case 'MaxCodeAmountSet':
+          return { ...where, kind: 'admin', change: 'limit', amount: Number(l.args.amount), to: null }
+        case 'Paused':
+        case 'Unpaused':
+          return { ...where, kind: 'admin', change: l.eventName === 'Paused' ? 'paused' : 'unpaused', amount: null, to: null }
+        case 'OwnershipTransferStarted':
+        case 'OwnershipTransferred':
+          return { ...where, kind: 'admin', change: l.eventName === 'OwnershipTransferStarted' ? 'ownershipStarted' : 'ownershipTransferred', amount: null, to: l.args.newOwner }
       }
     })
     .sort((a, b) => a.block - b.block || a.log - b.log)
@@ -271,6 +423,8 @@ export function summarise(history: VaultEvent[], opts: { now: number; fee: numbe
   const waited: number[] = []
   const activity: Activity[] = []
   let feesSwept = 0
+  let held = 0
+  let claimed = 0
   let relayedCount = 0
   let relayedGas = 0n
   let walletCount = 0
@@ -331,9 +485,17 @@ export function summarise(history: VaultEvent[], opts: { now: number; fee: numbe
       d.cancelled += e.count
       d.cancelledValue += e.value
       activity.push({ kind: 'cancelled', at: e.at, tx: e.tx, who: e.buyer, codes: e.count, amount: e.value })
-    } else {
+    } else if (e.kind === 'swept') {
       feesSwept += e.amount
       activity.push({ kind: 'swept', at: e.at, tx: e.tx, who: e.to, amount: e.amount })
+    } else if (e.kind === 'refund') {
+      if (e.claimed) claimed += e.amount
+      else held += e.amount
+      activity.push({ kind: 'refund', at: e.at, tx: e.tx, who: e.buyer, amount: e.amount, claimed: e.claimed })
+    } else if (e.kind === 'renewer') {
+      activity.push({ kind: 'renewer', at: e.at, tx: e.tx, who: e.renewer, change: e.change, activatesAt: e.activatesAt })
+    } else {
+      activity.push({ kind: 'admin', at: e.at, tx: e.tx, who: e.to, change: e.change, amount: e.amount })
     }
   }
 
@@ -378,6 +540,7 @@ export function summarise(history: VaultEvent[], opts: { now: number; fee: numbe
       .slice(0, MAX_NAMES),
     uniqueNames: names.size,
     feesSwept,
+    refunds: { held, claimed },
     relayed: { count: relayedCount, gas: relayedGas.toString() },
     byWallet: { count: walletCount },
   }
@@ -416,9 +579,13 @@ async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
     info(cfg),
   ])
   const relayerAddress = cfg.account?.address ?? null
-  const [held, balance] = await Promise.all([
+  const [held, balance, gasPrice, owed, governance] = await Promise.all([
     client.readContract({ address: usdc, abi: vaultAbi, functionName: 'balanceOf', args: [cfg.vault] }),
     relayerAddress ? client.getBalance({ address: relayerAddress }) : 0n,
+    client.getGasPrice(),
+    owedNow(client, cfg, all),
+    // An older vault without these reads still gets its dashboard, without this part.
+    governanceNow(client, cfg, all).catch((err) => (console.warn('stats: no governance reads', err instanceof Error ? err.message : err), null)),
   ])
   const now = Math.floor(Date.now() / 1000)
   return {
@@ -429,6 +596,8 @@ async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
     asOf: now,
     fee: Number(fee),
     state: { usdc: Number(held), feesAccrued: Number(feesAccrued), feeRecipient, paused, maxCodeAmount: Number(maxCodeAmount) },
+    owed,
+    governance,
     relayer: {
       address: relayerAddress,
       enabled: relayer.enabled,
@@ -436,7 +605,44 @@ async function build(client: Client, cfg: StatsConfig): Promise<Stats> {
       funded: 'funded' in relayer && relayer.funded === true,
       affordable: 'affordable' in relayer && relayer.affordable === true,
       balance: balance.toString(),
+      gasPrice: gasPrice.toString(),
+      maxFee: cfg.maxFeePerGas.toString(),
     },
+  }
+}
+
+/** What the vault holds for buyers right now, for every buyer it has ever held a leftover for. */
+async function owedNow(client: Client, cfg: StatsConfig, all: VaultEvent[]): Promise<Stats['owed']> {
+  const buyers = [...new Set(all.flatMap((e) => (e.kind === 'refund' && !e.claimed ? [e.buyer] : [])))]
+  const amounts = await pooled(buyers, 8, (buyer) => client.readContract({ address: cfg.vault, abi: vaultAbi, functionName: 'refundsOwed', args: [buyer] }))
+  const owing = buyers.map((address, i) => ({ address, amount: Number(amounts[i]) })).filter((b) => b.amount > 0)
+  return { total: owing.reduce((sum, b) => sum + b.amount, 0), buyers: owing.sort((a, b) => b.amount - a.amount) }
+}
+
+/**
+ * The owner, any ownership handover, and the renewers: every address the vault's renewer events
+ * have named, plus the ENS contracts, read from the vault as it stands now.
+ */
+async function governanceNow(client: Client, cfg: StatsConfig, all: VaultEvent[]): Promise<NonNullable<Stats['governance']>> {
+  const call = { address: cfg.vault, abi: vaultAbi } as const
+  const known = addresses[(cfg.chainId === 31337 ? 1 : cfg.chainId) as keyof typeof addresses] as { ethRegistrar: Address; ethRenewerV1: Address } | undefined
+  const names = new Map<Address, string>(known ? [[getAddress(known.ethRegistrar), 'ENS ETHRegistrar'], [getAddress(known.ethRenewerV1), 'ENS ETHRenewerV1']] : [])
+  const seen = [...new Set([...names.keys(), ...all.flatMap((e) => (e.kind === 'renewer' ? [getAddress(e.renewer)] : []))])]
+  const [owner, pendingOwner, window, active, pending] = await Promise.all([
+    client.readContract({ ...call, functionName: 'owner' }),
+    client.readContract({ ...call, functionName: 'pendingOwner' }),
+    client.readContract({ ...call, functionName: 'RENEWER_WINDOW' }),
+    pooled(seen, 8, (a) => client.readContract({ ...call, functionName: 'isRenewer', args: [a] })),
+    pooled(seen, 8, (a) => client.readContract({ ...call, functionName: 'pendingRenewers', args: [a] })),
+  ])
+  const name = (a: Address) => names.get(a) ?? null
+  return {
+    owner,
+    pendingOwner: /^0x0+$/.test(pendingOwner) ? null : pendingOwner,
+    renewers: seen.filter((_, i) => active[i]).map((address) => ({ address, name: name(address) })),
+    proposals: seen.flatMap((address, i) =>
+      pending[i] > 0n ? [{ address, name: name(address), activatesAt: Number(pending[i]), closesAt: Number(pending[i] + window) }] : [],
+    ),
   }
 }
 

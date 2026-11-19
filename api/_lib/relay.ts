@@ -42,8 +42,9 @@ export type RelayConfig = {
 }
 
 const DEFAULT_RPCS: Record<number, string[]> = {
-  1: ['https://ethereum-rpc.publicnode.com', 'https://eth.merkle.io', 'https://1rpc.io/eth'],
-  11155111: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co', 'https://1rpc.io/sepolia'],
+  1: ['https://ethereum-rpc.publicnode.com', 'https://eth.merkle.io'],
+  // publicnode's Sepolia node answers null for older receipts, so it goes last.
+  11155111: ['https://sepolia.gateway.tenderly.co', 'https://1rpc.io/sepolia', 'https://ethereum-sepolia-rpc.publicnode.com'],
   31337: ['http://127.0.0.1:8545'],
 }
 /** The default ceiling on the network fee, in gwei, for each chain. */
