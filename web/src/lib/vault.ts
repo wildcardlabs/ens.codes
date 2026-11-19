@@ -1,4 +1,4 @@
-import { type Address, type BaseError, domainSeparator, encodeAbiParameters, erc20Abi, getAddress, type Hex, isAddress, keccak256, numberToHex, parseEventLogs, parseSignature, type TransactionReceipt, type WalletClient } from 'viem'
+import { type Address, type BaseError, domainSeparator, encodeAbiParameters, erc20Abi, getAddress, type Hex, isAddress, keccak256, numberToHex, parseEventLogs, parseSignature, size, type TransactionReceipt, type WalletClient } from 'viem'
 import type { PrivateKeyAccount } from 'viem/accounts'
 import { vaultAbi } from './abi'
 import { format, keyForSecret, parse } from './code'
@@ -45,9 +45,16 @@ async function confirmed(hash: Hex, onStep?: (text: string) => void): Promise<Tr
 
 /**
  * Fund one purchase of codes of the same amount. `codes` are the addresses of the codes' keys, in
- * order. The buyer pays each code's value plus the protocol fee. Uses an existing allowance if there
- * is one, otherwise a USDC permit for the total, and falls back to an approve transaction if a
- * permit would not work for this wallet.
+ * order. The buyer pays each code's value plus the protocol fee.
+ *
+ * The way to pay is chosen so that every wallet prompt says what it does:
+ * - An existing allowance covers it: the purchase alone.
+ * - A smart account (a contract at the buyer's address, like a Safe): approve and buy as one batch,
+ *   if its wallet can. Wallets made for these accounts show each call of a batch.
+ * - A plain account (nothing at the address): a USDC permit, then the purchase. Wallets that batch
+ *   for a plain account do it by upgrading it (EIP-7702) and mostly show the batch as one call to
+ *   the person's own account, so plain accounts are never asked to batch.
+ * - Anything else, and a permit that would not work: approve, then buy.
  *
  * Each wallet request is its own step: `ready` is awaited before each one, with what that step does,
  * so the page can wait for the person to start it (see `WalletStep`).
@@ -88,8 +95,8 @@ export async function createCodes(
 
   if (allowance >= total) return create(purchase)
 
-  // A wallet that can send calls as one batch approves USDC and buys in a single confirmation.
-  if (canBatch) {
+  /** Approve USDC and buy in one confirmation. Null if the wallet turned this batch down as unsupported. */
+  const batch = async () => {
     await ready(purchase)
     onStep(confirmText)
     const calls = [
@@ -102,12 +109,19 @@ export async function createCodes(
       if (unsupported(err)) return null
       throw err
     })
-    if (sent) return done(await confirmed(await batchHash(wallet, sent, buyer, codes, from), onStep))
+    return sent ? done(await confirmed(await batchHash(wallet, sent, buyer, codes, from), onStep)) : null
   }
 
-  // Wallets with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
+  // An EIP-7702 delegation is code too, but the account is still a plain one with an upgrade.
+  const smartAccount = !!code && code !== '0x' && !code.toLowerCase().startsWith(DELEGATION)
+  if (smartAccount && canBatch) {
+    const bought = await batch()
+    if (bought) return bought
+  }
+
+  // Accounts with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
   // ERC-1271, which many don't support. Use a plain approve for them.
-  const permitDomain = code || nonce === null ? null : domain
+  const permitDomain = (code && code !== '0x') || nonce === null ? null : domain
   if (permitDomain && nonce !== null) {
     await ready({ kind: 'permit', after: null })
     onStep('Sign in your wallet…')
@@ -127,19 +141,26 @@ export async function createCodes(
       primaryType: 'Permit',
       message: { owner: buyer, spender: VAULT, value: total, nonce, deadline },
     })
-    const { v, r, s, yParity } = parseSignature(sig)
-    const vv = Number(v ?? BigInt(yParity + 27))
-    const call = { ...base, functionName: 'createWithPermit', args: [codes, amount, deadline, vv, r, s] } as const
-    // Check the permit would work before asking for a transaction. The check runs while the next
-    // step waits for the person, so it adds no wait of its own; it is nearly always done by the tap.
-    const works = publicClient.simulateContract(call).then(
-      () => true,
-      () => false,
-    )
-    await ready({ kind: 'purchase', after: 'permit' })
-    if (await works) {
-      onStep(confirmText)
-      return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep))
+    if (size(sig) === 65) {
+      const { v, r, s, yParity } = parseSignature(sig)
+      const vv = Number(v ?? BigInt(yParity + 27))
+      const call = { ...base, functionName: 'createWithPermit', args: [codes, amount, deadline, vv, r, s] } as const
+      // Check the permit would work before asking for a transaction. The check runs while the next
+      // step waits for the person, so it adds no wait of its own; it is nearly always done by the tap.
+      const works = publicClient.simulateContract(call).then(
+        () => true,
+        () => false,
+      )
+      await ready({ kind: 'purchase', after: 'permit' })
+      if (await works) {
+        onStep(confirmText)
+        return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep))
+      }
+    } else if (canBatch) {
+      // Any other signature is a smart account's, one not deployed yet (ERC-6492), which USDC can't
+      // check. Its wallet can batch, so that is one confirmation instead of two.
+      const bought = await batch()
+      if (bought) return bought
     }
   }
 
@@ -151,6 +172,9 @@ export async function createCodes(
   )
   return create({ kind: 'purchase', after: 'approve' })
 }
+
+/** The code an EIP-7702 delegation leaves at an account: this prefix, then the delegate's address. */
+const DELEGATION = '0xef0100'
 
 /**
  * Whether the wallet can send several calls as one all-or-nothing batch (EIP-5792). A wallet that
