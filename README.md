@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ens.codes"><img alt="Network: Sepolia" src="https://img.shields.io/badge/network-Sepolia-3784f4?style=flat-square"></a>
+  <a href="https://etherscan.io/address/0x61cc5a4aa6748e55b89e8a6d49366da96598a804#code"><img alt="Network: Ethereum" src="https://img.shields.io/badge/network-Ethereum-627eea?style=flat-square"></a>
   <img alt="Solidity 0.8.28" src="https://img.shields.io/badge/solidity-0.8.28-343433?style=flat-square">
   <a href="https://github.com/foundry-rs/foundry"><img alt="Built with Foundry" src="https://img.shields.io/badge/built%20with-Foundry-ca9230?style=flat-square"></a>
   <a href="https://github.com/wildcardlabs/ens-budget"><img alt="Built with ens-budget" src="https://img.shields.io/badge/built%20with-ens--budget-0080bc?style=flat-square"></a>
@@ -27,9 +27,6 @@
 
 **ens.codes** turns USDC into claim codes for ENS renewals. Buy a code, hand it to anyone, and
 they use it to renew any `.eth` name.
-
-> [!NOTE]
-> ens.codes is live on the Sepolia testnet ahead of its mainnet launch.
 
 <br>
 
@@ -88,7 +85,8 @@ they use it to renew any `.eth` name.
 </picture>
 
 A code's value sits in an onchain vault, not with us. It can only go to ENS for a renewal or back
-to the buyer.
+to the buyer. The vault is [`0x61cc…a804`](https://etherscan.io/address/0x61cc5a4aa6748e55b89e8a6d49366da96598a804#code)
+on Ethereum, with its source verified.
 
 <br>
 
@@ -104,6 +102,7 @@ to the buyer.
 | **Site**: buy, redeem and manage codes | [`web/`](web) |
 | **Vault**: `ClaimCodeVault`, the contract that holds and spends codes | [`contracts/`](contracts) |
 | **Relayer**: sends redemptions when we cover the network fee | [`api/`](api) |
+| **Indexer**: the vault's history as a subgraph, so pages load it in one request | [`indexer/`](indexer) |
 | **Pricing**: the longest renewal a budget buys | [`ens-budget`](https://github.com/wildcardlabs/ens-budget) |
 
 <br>
