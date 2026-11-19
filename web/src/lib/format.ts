@@ -64,9 +64,19 @@ export function fmtDelivered(seconds: bigint, daysBelow = 0): string {
   return y === 0n ? mPart : m > 0n ? `${yPart} ${mPart}` : yPart
 }
 
-/** Day-accurate: "4 years, 6 months, 11 days". Rounded to the nearest day, never up to a month. */
+/**
+ * Day-accurate: "4 years, 6 months, 11 days". Rounded to the nearest day, never up to a month.
+ * Under a day it counts whole hours ("13 hours"), and under an hour whole minutes.
+ */
 export function fmtDurationPrecise(seconds: bigint): string {
-  if (seconds < DAY) return 'less than a day'
+  if (seconds < 3_600n) {
+    const minutes = seconds / 60n
+    return minutes > 0n ? `${minutes} minute${minutes === 1n ? '' : 's'}` : 'less than a minute'
+  }
+  if (seconds < DAY) {
+    const hours = seconds / 3_600n
+    return `${hours} hour${hours === 1n ? '' : 's'}`
+  }
   const whole = ((seconds + DAY / 2n) / DAY) * DAY
   const years = whole / YEAR_SECONDS
   const afterYears = whole % YEAR_SECONDS

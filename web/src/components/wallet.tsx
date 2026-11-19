@@ -7,18 +7,15 @@ import { useEnsProfile } from '@/lib/ensProfile'
 import { truncAddress } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { connect, connectWalletConnect, type Discovered, disconnect, useWallet } from '@/lib/wallet'
-import { isAndroid, isMobile, warmUp } from '@/lib/walletconnect'
+import { isAndroid, warmUp } from '@/lib/walletconnect'
 import { Token } from './ds/primitives'
 import { WalletConnectIcon } from './ds/WalletConnectIcon'
 
 const connectError = (err: { shortMessage?: string; message?: string; code?: number }) =>
   err.code === 4001 ? 'You cancelled the request in your wallet.' : (err.shortMessage ?? err.message ?? 'Could not connect.')
 
-/**
- * WalletConnect's row. On a computer it goes by its own name, which people with a phone wallet, Safe
- * or Ledger Live look for. On a phone it means "a wallet app on this phone".
- */
-const WALLETCONNECT_LABEL = () => (isMobile() ? 'Wallet app' : 'WalletConnect')
+/** WalletConnect's row goes by its own name everywhere: it's what people with a phone wallet, Safe or Ledger Live look for. */
+const WALLETCONNECT_LABEL = 'WalletConnect'
 const NO_WALLET = WALLETCONNECT
   ? 'No browser wallet found. Connect a phone wallet with WalletConnect, or install one such as MetaMask or Rabby.'
   : 'No browser wallet found. Install one, such as MetaMask or Rabby, then reload.'
@@ -53,7 +50,7 @@ export function WalletChoices({ onError, className }: { onError: (message: strin
           className="fragment flex h-12 items-center gap-3 px-3.5 text-left text-[15px] font-medium text-foreground transition-colors duration-100 hover:bg-card disabled:opacity-60"
         >
           <WalletConnectIcon className="size-6" />
-          <span className="flex-1">{WALLETCONNECT_LABEL()}</span>
+          <span className="flex-1">{WALLETCONNECT_LABEL}</span>
         </button>
       )}
       {wallets.length === 0 && !WALLETCONNECT && <p className="text-[14px] text-caption">{NO_WALLET}</p>}
@@ -148,7 +145,7 @@ export function WalletMenu() {
         {WALLETCONNECT && (
           <DropdownMenuItem onSelect={() => void connectWalletConnect()} className="gap-2.5">
             <WalletConnectIcon className="size-5" />
-            {WALLETCONNECT_LABEL()}
+            {WALLETCONNECT_LABEL}
           </DropdownMenuItem>
         )}
         {error && <div className="px-2 py-1.5 text-[12px] text-red">{error}</div>}
