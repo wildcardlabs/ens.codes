@@ -32,8 +32,9 @@ export const maxBatch = () => read('MAX_BATCH')
 export const usdcBalance = (owner: Address) =>
   publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: 'balanceOf', args: [owner] })
 
-async function confirmed(hash: Hex, onStep?: (text: string) => void): Promise<TransactionReceipt> {
-  onStep?.('Confirming…')
+/** Wait for a transaction to land. `label` says what is landing, for the button while it waits. */
+async function confirmed(hash: Hex, onStep?: (text: string) => void, label = 'Confirming…'): Promise<TransactionReceipt> {
+  onStep?.(label)
   const receipt = await publicClient.waitForTransactionReceipt({ hash })
   if (receipt.status !== 'success') throw new Error('The transaction failed.')
   // What is read next must include this block: the provider's nodes don't all move in step, and
@@ -51,9 +52,9 @@ async function confirmed(hash: Hex, onStep?: (text: string) => void): Promise<Tr
  * - An existing allowance covers it: the purchase alone.
  * - A smart account (a contract at the buyer's address, like a Safe): approve and buy as one batch,
  *   if its wallet can. Wallets made for these accounts show each call of a batch.
- * - A plain account (nothing at the address): a USDC permit, then the purchase. Wallets that batch
- *   for a plain account do it by upgrading it (EIP-7702) and mostly show the batch as one call to
- *   the person's own account, so plain accounts are never asked to batch.
+ * - A plain account (nothing at the address, or an EIP-7702 upgrade of one): a USDC permit, then the
+ *   purchase. Wallets that batch for a plain account do it by upgrading it (EIP-7702) and mostly show
+ *   the batch as one call to the person's own account, so plain accounts are never asked to batch.
  * - Anything else, and a permit that would not work: approve, then buy.
  *
  * Each wallet request is its own step: `ready` is awaited before each one, with what that step does,
@@ -83,6 +84,8 @@ export async function createCodes(
   const total = (amount + fee) * BigInt(codes.length)
   // Button labels stay short: one line on a phone. The note under the button says the rest.
   const confirmText = 'Confirm in your wallet…'
+  const approveText = 'Approve USDC in your wallet…'
+  const buying = 'Confirming purchase…'
   const base = { account: buyer, address: VAULT, abi: vaultAbi } as const
   const done = (receipt: TransactionReceipt) => ({ hash: receipt.transactionHash, block: receipt.blockNumber })
 
@@ -90,7 +93,7 @@ export async function createCodes(
   const create = async (step: WalletStep) => {
     await ready(step)
     onStep(confirmText)
-    return done(await confirmed(await wallet.writeContract({ ...base, chain: wallet.chain, functionName: 'create', args: [codes, amount] }), onStep))
+    return done(await confirmed(await wallet.writeContract({ ...base, chain: wallet.chain, functionName: 'create', args: [codes, amount] }), onStep, buying))
   }
 
   if (allowance >= total) return create(purchase)
@@ -109,7 +112,7 @@ export async function createCodes(
       if (unsupported(err)) return null
       throw err
     })
-    return sent ? done(await confirmed(await batchHash(wallet, sent, buyer, codes, from), onStep)) : null
+    return sent ? done(await confirmed(await batchHash(wallet, sent, buyer, codes, from), onStep, buying)) : null
   }
 
   // An EIP-7702 delegation is code too, but the account is still a plain one with an upgrade.
@@ -119,12 +122,14 @@ export async function createCodes(
     if (bought) return bought
   }
 
-  // Accounts with code (smart accounts, EIP-7702 delegations) make USDC verify the permit via
-  // ERC-1271, which many don't support. Use a plain approve for them.
-  const permitDomain = (code && code !== '0x') || nonce === null ? null : domain
+  // An account with code makes USDC check the permit with ERC-1271. Smart accounts mostly can't
+  // answer for a plain signature, so they approve with a transaction. An EIP-7702 upgrade is still
+  // signed for by the account's own key, and the common ones accept that key's signature (Calibur,
+  // as Rainbow and Uniswap Wallet use, does); the check below catches one that doesn't.
+  const permitDomain = smartAccount || nonce === null ? null : domain
   if (permitDomain && nonce !== null) {
     await ready({ kind: 'permit', after: null })
-    onStep('Sign in your wallet…')
+    onStep(approveText)
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
     const sig = await wallet.signTypedData({
       account: buyer,
@@ -154,7 +159,7 @@ export async function createCodes(
       await ready({ kind: 'purchase', after: 'permit' })
       if (await works) {
         onStep(confirmText)
-        return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep))
+        return done(await confirmed(await wallet.writeContract({ ...call, chain: wallet.chain }), onStep, buying))
       }
     } else if (canBatch) {
       // Any other signature is a smart account's, one not deployed yet (ERC-6492), which USDC can't
@@ -165,10 +170,11 @@ export async function createCodes(
   }
 
   await ready({ kind: 'approve', after: permitDomain ? 'permit' : null })
-  onStep('Approve USDC in your wallet…')
+  onStep(approveText)
   await confirmed(
     await wallet.writeContract({ account: buyer, chain: wallet.chain, address: USDC, abi: erc20Abi, functionName: 'approve', args: [VAULT, total] }),
     onStep,
+    'Approving USDC…',
   )
   return create({ kind: 'purchase', after: 'approve' })
 }
