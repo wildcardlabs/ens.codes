@@ -6,6 +6,12 @@ export type EnsProfile = { name: string; avatar: string | null }
 
 const API = 'https://api.resolvio.xyz/ens/v2/reverse'
 
+/**
+ * Avatars always load from ENS's avatar service by name, whatever the record points to (another host,
+ * ipfs://, an NFT). It answers with the image itself, so the CSP's img-src can name that one host.
+ */
+const avatarUrl = (name: string) => `https://euc.li/${encodeURIComponent(name)}`
+
 /** One request per address per visit; failures resolve to null so the address is shown instead. */
 const cache = new Map<string, Promise<EnsProfile | null>>()
 
@@ -16,7 +22,7 @@ export function fetchEnsProfile(address: Address): Promise<EnsProfile | null> {
     p = fetch(`${API}/${address}/profile`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { hasReverseRecord?: boolean; name?: string | null; avatar?: string | null } | null) =>
-        d?.hasReverseRecord && d.name ? { name: d.name, avatar: d.avatar ?? null } : null,
+        d?.hasReverseRecord && d.name ? { name: d.name, avatar: d.avatar ? avatarUrl(d.name) : null } : null,
       )
       .catch(() => null)
     cache.set(key, p)
